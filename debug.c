@@ -406,6 +406,10 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "IPU: %u blocks\n", si->inplace_count);
 		seq_printf(s, "SSR: %u blocks in %u segments\n",
 			   si->block_count[SSR], si->segment_count[SSR]);
+//add shao
+		seq_printf(s, "UPDATE: %u blocks\n",
+			   si->sbi->block_count[2]);
+//add shao
 		seq_printf(s, "LFS: %u blocks in %u segments\n",
 			   si->block_count[LFS], si->segment_count[LFS]);
 
@@ -424,6 +428,13 @@ static int stat_show(struct seq_file *s, void *v)
 				si->cache_mem >> 10);
 		seq_printf(s, "  - paged : %llu KB\n",
 				si->page_mem >> 10);
+//add shao
+		for(i = 0; i < MAIN_SEGS(si->sbi) * si->sbi->blocks_per_seg; i++){
+			if(i % 10 == 0)
+				seq_puts(s, "\n");	
+			seq_printf(s, "IRR: %u\tLWS: %u, ", (si->sbi->blk_cnt_en + i)->IRR, (si->sbi->blk_cnt_en + i)->LWS);  
+		}
+//add shao
 	}
 	mutex_unlock(&f2fs_stat_mutex);
 	return 0;

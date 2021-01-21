@@ -784,6 +784,10 @@ static inline void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
 #define NR_CURSEG_NODE_TYPE	(3)
 #define NR_CURSEG_TYPE	(NR_CURSEG_DATA_TYPE + NR_CURSEG_NODE_TYPE)
 
+//add shao
+#define	NR_HOTNESS_CURSEG_DATA_TYPE	(16)
+//add shao
+
 enum {
 	CURSEG_HOT_DATA	= 0,	/* directory entry blocks */
 	CURSEG_WARM_DATA,	/* data blocks */
@@ -814,6 +818,11 @@ struct f2fs_sm_info {
 	struct sit_info *sit_info;		/* whole segment information */
 	struct free_segmap_info *free_info;	/* free segment information */
 	struct dirty_seglist_info *dirty_info;	/* dirty segment information */
+
+//add shao
+	struct hotness_curseg_info *hotness_curseg_array;
+//add shao
+
 	struct curseg_info *curseg_array;	/* active segment information */
 
 	struct rw_semaphore curseg_lock;	/* for preventing curseg change */
@@ -1132,7 +1141,8 @@ struct f2fs_sb_info {
 #ifdef CONFIG_F2FS_STAT_FS
 	struct f2fs_stat_info *stat_info;	/* FS status information */
 	unsigned int segment_count[2];		/* # of allocated segments */
-	unsigned int block_count[2];		/* # of allocated blocks */
+//	unsigned int block_count[2];		/* # of allocated blocks */
+	unsigned int block_count[3];		/* # of allocated blocks */
 	atomic_t inplace_count;		/* # of inplace update */
 	atomic64_t total_hit_ext;		/* # of lookup extent cache */
 	atomic64_t read_hit_rbtree;		/* # of hit rbtree extent node */
@@ -1182,6 +1192,10 @@ struct f2fs_sb_info {
 #ifdef CONFIG_F2FS_FAULT_INJECTION
 	struct f2fs_fault_info fault_info;
 #endif
+
+//add shao
+	struct blk_cnt_entry *blk_cnt_en;
+//add shao
 
 #ifdef CONFIG_QUOTA
 	/* Names of quota files with journalled quota */
@@ -2689,6 +2703,14 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 			block_t old_blkaddr, block_t *new_blkaddr,
 			struct f2fs_summary *sum, int type,
 			struct f2fs_io_info *fio, bool add_list);
+			
+//add shao start
+static void set_hotness_info(struct f2fs_sb_info *sbi, block_t blkaddr, unsigned int IRR_val, unsigned int LWS_val);
+void allocate_data_block_with_hotness(struct f2fs_sb_info *sbi, struct page *page,
+		block_t old_blkaddr, block_t *new_blkaddr,
+		struct f2fs_summary *sum, int type);
+//add shao end
+
 void f2fs_wait_on_page_writeback(struct page *page,
 			enum page_type type, bool ordered);
 void f2fs_wait_on_block_writeback(struct f2fs_sb_info *sbi, block_t blkaddr);

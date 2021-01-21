@@ -1409,7 +1409,7 @@ int do_write_data_page(struct f2fs_io_info *fio)
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	if (need_inplace_update(fio) &&
-			f2fs_lookup_extent_cache(inode, page->index, &ei)) {
+			f2fs_lookup_extent_cache(inode, page->index, &ei) && false) {
 		fio->old_blkaddr = ei.blk + page->index - ei.fofs;
 
 		if (valid_ipu_blkaddr(fio)) {
@@ -1439,7 +1439,7 @@ got_it:
 	 * If current allocation needs SSR,
 	 * it had better in-place writes for updated data.
 	 */
-	if (ipu_force || (valid_ipu_blkaddr(fio) && need_inplace_update(fio))) {
+	if (ipu_force || (valid_ipu_blkaddr(fio) && need_inplace_update(fio) && false)) {
 		err = encrypt_one_page(fio);
 		if (err)
 			goto out_writepage;

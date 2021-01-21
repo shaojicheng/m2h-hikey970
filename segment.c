@@ -175,6 +175,10 @@ bool need_SSR(struct f2fs_sb_info *sbi)
 	int dent_secs = get_blocktype_secs(sbi, F2FS_DIRTY_DENTS);
 	int imeta_secs = get_blocktype_secs(sbi, F2FS_DIRTY_IMETA);
 
+//add shao
+	return false;
+//add shao
+
 	if (test_opt(sbi, LFS))
 		return false;
 	if (sbi->gc_thread && sbi->gc_thread->gc_urgent)
@@ -1908,6 +1912,10 @@ void invalidate_blocks(struct f2fs_sb_info *sbi, block_t addr)
 
 	update_sit_entry(sbi, addr, -1);
 
+
+	//	当删除block时，将这个block的热度信息也删除
+	set_hotness_info(sbi, addr, MAX_IRR, 0);
+
 	/* add it into dirty seglist */
 	locate_dirty_segment(sbi, segno);
 
@@ -1949,6 +1957,18 @@ static void __add_sum_entry(struct f2fs_sb_info *sbi, int type,
 	addr += curseg->next_blkoff * sizeof(struct f2fs_summary);
 	memcpy(addr, sum, sizeof(struct f2fs_summary));
 }
+
+
+//add shao
+static void __hotness_add_sum_entry(struct f2fs_sb_info *sbi, int type,
+					struct f2fs_summary *sum)
+{
+	struct	hotness_curseg_info *hotness_curseg = HOTNESS_CURSEG_I(sbi, type);
+	void *addr = hotness_curseg->sum_blk;
+	addr += hotness_curseg->next_blkoff * sizeof(struct f2fs_summary);
+	memcpy(addr, sum, sizeof(struct f2fs_summary));
+}
+//add shao
 
 /*
  * Calculate the number of current summary pages for writing
@@ -2149,6 +2169,25 @@ static void reset_curseg(struct f2fs_sb_info *sbi, int type, int modified)
 	__set_sit_entry_type(sbi, type, curseg->segno, modified);
 }
 
+
+//add shao
+static void reset_hotness_curseg(struct f2fs_sb_info *sbi, int type, int modified)
+{
+	struct hotness_curseg_info *hotness_curseg = HOTNESS_CURSEG_I(sbi, type);
+	struct summary_footer *sum_footer;
+
+	hotness_curseg->segno = hotness_curseg->next_segno;
+	hotness_curseg->zone = GET_ZONE_FROM_SEG(sbi, hotness_curseg->segno);
+	hotness_curseg->next_blkoff = 0;
+	hotness_curseg->next_segno = NULL_SEGNO;
+
+	sum_footer = &(hotness_curseg->sum_blk->footer);
+	memset(sum_footer, 0, sizeof(struct summary_footer));
+	SET_SUM_TYPE(sum_footer, SUM_TYPE_DATA);
+	__set_sit_entry_type(sbi, CURSEG_WARM_DATA, hotness_curseg->segno, modified);
+}
+//add shao
+
 static unsigned int __get_next_segno(struct f2fs_sb_info *sbi, int type)
 {
 	/* if segs_per_sec is large than 1, we need to keep original policy. */
@@ -2219,6 +2258,14 @@ static void __refresh_next_blkoff(struct f2fs_sb_info *sbi,
 	else
 		seg->next_blkoff++;
 }
+
+
+//add shao
+static void __hotness_refresh_next_blkoff(struct hotness_curseg_info *seg)
+{
+	seg->next_blkoff++;
+}
+//add shao
 
 /*
  * This function always allocates a used segment(from dirty seglist) by SSR
@@ -2319,6 +2366,26 @@ static void allocate_segment_by_default(struct f2fs_sb_info *sbi,
 	stat_inc_seg_type(sbi, curseg);
 }
 
+
+//add shao
+static void hotness_allocate_segment_by_default(struct f2fs_sb_info *sbi,
+						int type)
+{
+	struct hotness_curseg_info *hotness_curseg = HOTNESS_CURSEG_I(sbi, type);
+	//从上一个segno开始，作为起点，继续分配
+	unsigned int segno = hotness_curseg->segno;
+	//DATA的起始segno在左边，所以方向是right
+	int dir = ALLOC_RIGHT;
+	//要分配新的seg了，将当前segno的SSA信息在cache中置脏，等着回刷
+	write_sum_page(sbi, hotness_curseg->sum_blk, GET_SUM_BLOCK(sbi, segno));
+	//分配新的段for LFS
+	get_new_segment(sbi, &segno, false, dir);
+	hotness_curseg->next_segno = segno;
+	//根据分配结果，重置curseg的一些信息，包括段类型等
+	reset_hotness_curseg(sbi, type, 1);
+}
+//add shao
+
 void allocate_new_segments(struct f2fs_sb_info *sbi)
 {
 	struct curseg_info *curseg;
@@ -2340,6 +2407,13 @@ void allocate_new_segments(struct f2fs_sb_info *sbi)
 static const struct segment_allocation default_salloc_ops = {
 	.allocate_segment = allocate_segment_by_default,
 };
+
+
+//add shao
+static const struct hotness_segment_allocation hotness_default_salloc_ops = {
+	.hotness_allocate_segment = hotness_allocate_segment_by_default,
+};
+//add shao
 
 bool exist_trim_candidates(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 {
@@ -2433,6 +2507,17 @@ static bool __has_curseg_space(struct f2fs_sb_info *sbi, int type)
 		return true;
 	return false;
 }
+
+
+//add shao
+static bool __hotness_has_curseg_space(struct f2fs_sb_info *sbi, int type)
+{
+	struct hotness_curseg_info *hotness_curseg = HOTNESS_CURSEG_I(sbi, type);
+	if (hotness_curseg->next_blkoff < sbi->blocks_per_seg)
+		return true;
+	return false;
+}
+//add shao
 
 #if 0
 int rw_hint_to_seg_type(enum rw_hint hint)
@@ -2590,6 +2675,32 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 	up_read(&SM_I(sbi)->curseg_lock);
 }
 
+
+//add shao
+void allocate_data_block_with_hotness(struct f2fs_sb_info *sbi, struct page *page,
+		block_t old_blkaddr, block_t *new_blkaddr,
+		struct f2fs_summary *sum, int type)
+{
+	struct sit_info *sit_i = SIT_I(sbi);
+	struct hotness_curseg_info *hotness_curseg;
+	hotness_curseg = HOTNESS_CURSEG_I(sbi, type);
+	*new_blkaddr = HOTNESS_NEXT_FREE_BLKADDR(sbi, hotness_curseg);
+	__hotness_add_sum_entry(sbi, type, sum);
+	down_write(&sit_i->sentry_lock);
+	__hotness_refresh_next_blkoff(hotness_curseg);
+	if (!__hotness_has_curseg_space(sbi, type))
+		sit_i->hotness_s_ops->hotness_allocate_segment(sbi, type);
+	
+	update_sit_entry(sbi, *new_blkaddr, 1);
+	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO)
+		update_sit_entry(sbi, old_blkaddr, -1);
+	locate_dirty_segment(sbi, GET_SEGNO(sbi, old_blkaddr));
+	locate_dirty_segment(sbi, GET_SEGNO(sbi, *new_blkaddr));
+
+	up_write(&sit_i->sentry_lock);
+}
+//add shao
+
 static void update_device_state(struct f2fs_io_info *fio)
 {
 	struct f2fs_sb_info *sbi = fio->sbi;
@@ -2611,14 +2722,121 @@ static void update_device_state(struct f2fs_io_info *fio)
 	}
 }
 
+//add shao start
+static void get_hotness_info(struct f2fs_sb_info *sbi, block_t old_blkaddr, unsigned int *old_IRR, unsigned int *old_LWS){
+	unsigned int old_segno = 0, old_offset = 0;
+	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO){
+		old_segno = GET_SEGNO(sbi, old_blkaddr);
+		old_offset = GET_BLKOFF_FROM_SEG0(sbi, old_blkaddr);
+		*old_IRR = sbi->blk_cnt_en[old_segno * sbi->blocks_per_seg + old_offset].IRR;
+		*old_LWS = sbi->blk_cnt_en[old_segno * sbi->blocks_per_seg + old_offset].LWS;
+	}
+}
+
+static void set_hotness_info(struct f2fs_sb_info *sbi, block_t blkaddr, unsigned int IRR_val, unsigned int LWS_val){
+	unsigned int new_segno = 0, new_offset = 0;
+	if (GET_SEGNO(sbi, blkaddr) != NULL_SEGNO){
+		new_segno = GET_SEGNO(sbi, blkaddr);
+		new_offset = GET_BLKOFF_FROM_SEG0(sbi, blkaddr);
+		sbi->blk_cnt_en[new_segno * sbi->blocks_per_seg + new_offset].IRR = IRR_val;
+		sbi->blk_cnt_en[new_segno * sbi->blocks_per_seg + new_offset].LWS = LWS_val;
+	}
+}
+
+static unsigned int get_new_IRR(struct f2fs_sb_info *sbi, block_t old_blkaddr){
+	unsigned int old_IRR = 0, new_IRR = MAX_IRR, old_LWS = 0;;
+	//不是第一次写，旧block存在,则通过公式计算得到新的热度
+	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO){
+		//获取旧地址的热度和时间信息
+		get_hotness_info(sbi, old_blkaddr, &old_IRR, &old_LWS);
+		new_IRR = sbi->block_count[2] - old_LWS;
+	}
+	return new_IRR;
+}
+
+static int get_type_by_hotness(unsigned int hotness, struct f2fs_sb_info *sbi){
+	//利用率是0-20%
+	int type = 0;
+	if(sbi->block_count[2] < 2936399){
+		//用10%的指标
+		if(hotness < 80000)
+			type =0;
+		else if(hotness < 140000)
+			type =1;
+		else
+			type =2;
+	}
+	//利用率是20-40%
+	else if(sbi->block_count[2] < 7643976){
+		//用30%的指标
+		if(hotness < 200000)
+			type =0;
+		else if(hotness < 1500000)
+			type =1;
+		else
+			type =2;
+	}
+	//利用率是40-60%
+	else if(sbi->block_count[2] < 12734641){
+		//用50%的指标
+		if(hotness < 400000)
+			type =0;
+		else if(hotness < 8000000)
+			type =1;
+		else
+			type =2;
+	}
+	//利用率是90%
+	else{
+		//用70%的指标
+		if(hotness < 400000)
+			type =0;
+		else if(hotness < 12000000)
+			type =1;
+		else
+			type =2;
+	}
+	return type;
+
+}
+//add shao end
+
 static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)
 {
+	unsigned int new_IRR = 0;
 	int type = __get_segment_type(fio);
 	int err;
 
 reallocate:
-	allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
+//add shao start
+	if(type == CURSEG_WARM_DATA){
+
+/*
+		// WARM DATA PAGE++
+		fio->sbi->block_count[2]++;
+		// 计算新的IRR
+		new_IRR = get_new_IRR(fio->sbi, fio->old_blkaddr);
+
+		// 通过热度信息获取应从哪一等级分配block
+		type = get_type_by_hotness(new_IRR, fio->sbi);
+		// 从type类型的segment分配一个block出来
+		allocate_data_block_with_hotness(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type);
+
+		// 新地址填上新的热度
+		set_hotness_info(fio->sbi, fio->new_blkaddr, new_IRR, fio->sbi->block_count[2]);
+		// 旧地址hotness和mtime置0
+		set_hotness_info(fio->sbi, fio->old_blkaddr, MAX_IRR, 0);
+
+*/
+		allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
 			&fio->new_blkaddr, sum, type, fio, true);
+	}
+	else{
+		allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
+			&fio->new_blkaddr, sum, type, fio, true);
+	}
+//add shao end
+
 
 	/* writeout dirty page into bdev */
 	err = f2fs_submit_page_write(fio);
@@ -3412,6 +3630,11 @@ static int build_sit_info(struct f2fs_sb_info *sbi)
 	/* init SIT information */
 	sit_i->s_ops = &default_salloc_ops;
 
+
+//add shao
+	sit_i->hotness_s_ops = &hotness_default_salloc_ops;
+//add shao
+
 	sit_i->sit_base_addr = le32_to_cpu(raw_super->sit_blkaddr);
 	sit_i->sit_blocks = sit_segs << sbi->log_blocks_per_seg;
 	sit_i->written_valid_blocks = 0;
@@ -3484,6 +3707,39 @@ static int build_curseg(struct f2fs_sb_info *sbi)
 	}
 	return restore_curseg_summaries(sbi);
 }
+
+
+//add shao
+static int build_hotness_curseg(struct f2fs_sb_info *sbi)
+{
+	struct hotness_curseg_info *array;
+	int i;
+	//从curseg往后分配
+	unsigned int segno = CURSEG_I(sbi, CURSEG_WARM_DATA)->segno;
+	int dir = ALLOC_RIGHT;
+
+	array = kcalloc(NR_CURSEG_DATA_TYPE, sizeof(*array), GFP_KERNEL);
+	if (!array)
+		return -ENOMEM;
+
+	SM_I(sbi)->hotness_curseg_array = array;
+
+	for (i = 0; i < NR_CURSEG_DATA_TYPE; i++) {
+		array[i].sum_blk = kzalloc(PAGE_SIZE, GFP_KERNEL);
+		if (!array[i].sum_blk)
+			return -ENOMEM;
+
+		//分配新的段for LFS
+		get_new_segment(sbi, &segno, false, dir);
+		array[i].next_segno = segno;
+		//根据分配结果，重置curseg的一些信息，包括段类型等
+		reset_hotness_curseg(sbi, i, 0);
+	}
+	//下次再从外存中读取，现在就在内存中自己分配
+	//return restore_curseg_summaries(sbi);
+	return 0;
+}
+//add shao
 
 static void build_sit_entries(struct f2fs_sb_info *sbi)
 {
@@ -3711,7 +3967,8 @@ int build_segment_manager(struct f2fs_sb_info *sbi)
 	sm_info->min_ipu_util = DEF_MIN_IPU_UTIL;
 	sm_info->min_fsync_blocks = DEF_MIN_FSYNC_BLOCKS;
 	sm_info->min_hot_blocks = DEF_MIN_HOT_BLOCKS;
-	sm_info->min_ssr_sections = reserved_sections(sbi);
+//	sm_info->min_ssr_sections = reserved_sections(sbi);
+	sm_info->min_ssr_sections = 0;
 
 	sm_info->trim_sections = DEF_BATCHED_TRIM_SECTIONS;
 
@@ -3748,6 +4005,13 @@ int build_segment_manager(struct f2fs_sb_info *sbi)
 		return err;
 
 	init_min_max_mtime(sbi);
+
+//add shao
+	err = build_hotness_curseg(sbi);
+	if (err)
+		return err;
+//add shao
+
 	return 0;
 }
 

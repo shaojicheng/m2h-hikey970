@@ -15,6 +15,11 @@
 #define NULL_SEGNO			((unsigned int)(~0))
 #define NULL_SECNO			((unsigned int)(~0))
 
+
+//add shao
+#define MAX_IRR				((unsigned int)(~0))
+//add shao
+
 #define DEF_RECLAIM_PREFREE_SEGMENTS	5	/* 5% over total segments */
 #define DEF_MAX_RECLAIM_PREFREE_SEGMENTS	4096	/* 8GB in maximum */
 
@@ -37,7 +42,10 @@
 	 ((seg) == CURSEG_I(sbi, CURSEG_COLD_DATA)->segno) ||	\
 	 ((seg) == CURSEG_I(sbi, CURSEG_HOT_NODE)->segno) ||	\
 	 ((seg) == CURSEG_I(sbi, CURSEG_WARM_NODE)->segno) ||	\
-	 ((seg) == CURSEG_I(sbi, CURSEG_COLD_NODE)->segno))
+	 ((seg) == CURSEG_I(sbi, CURSEG_COLD_NODE)->segno) || \
+	 ((seg) == HOTNESS_CURSEG_I(sbi, 0)->segno) ||  \
+	 ((seg) == HOTNESS_CURSEG_I(sbi, 1)->segno) ||  \
+	 ((seg) == HOTNESS_CURSEG_I(sbi, 2)->segno))  \
 
 #define IS_CURSEC(sbi, secno)						\
 	(((secno) == CURSEG_I(sbi, CURSEG_HOT_DATA)->segno /		\
@@ -51,7 +59,13 @@
 	 ((secno) == CURSEG_I(sbi, CURSEG_WARM_NODE)->segno /		\
 	  (sbi)->segs_per_sec) ||	\
 	 ((secno) == CURSEG_I(sbi, CURSEG_COLD_NODE)->segno /		\
-	  (sbi)->segs_per_sec))	\
+	  (sbi)->segs_per_sec)	||	\
+	 ((secno) == HOTNESS_CURSEG_I(sbi, 0)->segno /		\
+	  (sbi)->segs_per_sec)	||	\
+	 ((secno) == HOTNESS_CURSEG_I(sbi, 1)->segno /		\
+	  (sbi)->segs_per_sec)	||	\
+	 ((secno) == HOTNESS_CURSEG_I(sbi, 2)->segno /		\
+	  (sbi)->segs_per_sec))		\
 
 #define MAIN_BLKADDR(sbi)	(SM_I(sbi)->main_blkaddr)
 #define SEG0_BLKADDR(sbi)	(SM_I(sbi)->seg0_blkaddr)
@@ -71,6 +85,12 @@
 
 #define NEXT_FREE_BLKADDR(sbi, curseg)					\
 	(START_BLOCK(sbi, (curseg)->segno) + (curseg)->next_blkoff)
+
+
+//add shao
+#define HOTNESS_NEXT_FREE_BLKADDR(sbi, hotness_curseg)					\
+	(START_BLOCK(sbi, hotness_curseg->segno) + hotness_curseg->next_blkoff)
+//add shao
 
 #define GET_SEGOFF_FROM_SEG0(sbi, blk_addr)	((blk_addr) - SEG0_BLKADDR(sbi))
 #define GET_SEGNO_FROM_SEG0(sbi, blk_addr)				\
@@ -171,6 +191,13 @@ struct victim_sel_policy {
 	unsigned int min_segno;		/* segment # having min. cost */
 };
 
+//add shao
+struct blk_cnt_entry{
+	unsigned int IRR;	/*代表热度值*/
+	unsigned int LWS;	/*块的修改时间，64bit*/
+};
+//add shao
+
 struct seg_entry {
 	unsigned int type:6;		/* segment type like CURSEG_XXX_TYPE */
 	unsigned int valid_blocks:10;	/* # of valid blocks */
@@ -197,6 +224,13 @@ struct segment_allocation {
 	void (*allocate_segment)(struct f2fs_sb_info *, int, bool);
 };
 
+
+//add shao
+struct hotness_segment_allocation {
+	void (*hotness_allocate_segment)(struct f2fs_sb_info *, int);
+};
+//add shao
+
 /*
  * this value is set in page as a private data which indicate that
  * the page is atomically written, and it is in inmem_pages list.
@@ -217,6 +251,11 @@ struct inmem_pages {
 
 struct sit_info {
 	const struct segment_allocation *s_ops;
+
+	
+//add shao
+	const struct hotness_segment_allocation *hotness_s_ops;
+//add shao
 
 	block_t sit_base_addr;		/* start block address of SIT area */
 	block_t sit_blocks;		/* # of blocks used by SIT area */
@@ -293,6 +332,17 @@ struct curseg_info {
 	unsigned int next_segno;		/* preallocated segment */
 };
 
+
+//add shao
+struct hotness_curseg_info {
+	struct f2fs_summary_block *sum_blk;	/* cached summary block */
+	unsigned int segno;			/* current segment number */
+	unsigned short next_blkoff;		/* next block offset to write */
+	unsigned int zone;			/* current zone number */
+	unsigned int next_segno;		/* preallocated segment */
+};
+//add shao
+
 struct sit_entry_set {
 	struct list_head set_list;	/* link with all sit sets */
 	unsigned int start_segno;	/* start segno of sits in set */
@@ -306,6 +356,13 @@ static inline struct curseg_info *CURSEG_I(struct f2fs_sb_info *sbi, int type)
 {
 	return (struct curseg_info *)(SM_I(sbi)->curseg_array + type);
 }
+
+//add shao
+static inline struct hotness_curseg_info *HOTNESS_CURSEG_I(struct f2fs_sb_info *sbi, int type)
+{
+	return (struct hotness_curseg_info *)(SM_I(sbi)->hotness_curseg_array + type);
+}
+//add shao
 
 static inline struct seg_entry *get_seg_entry(struct f2fs_sb_info *sbi,
 						unsigned int segno)

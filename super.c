@@ -2376,6 +2376,20 @@ static int f2fs_scan_devices(struct f2fs_sb_info *sbi)
 	return 0;
 }
 
+//add shao
+static void build_block_cnt_manager(struct f2fs_sb_info *sbi){
+	//main area有5616个seg,为每个block分配一个int，总共约需要分配10M的内存
+	struct blk_cnt_entry *blk_cnt_en = vzalloc(sizeof(struct blk_cnt_entry) * MAIN_SEGS(sbi) * sbi->blocks_per_seg);
+	unsigned int i = 0;
+	//初始化时，IRR是MAX,第一次写当做冷数据;LWS是0
+	for(i = 0; i < MAIN_SEGS(sbi) * sbi->blocks_per_seg; ++i){
+		(blk_cnt_en + i)->IRR = MAX_IRR;
+		(blk_cnt_en + i)->LWS = 0;
+	}
+	sbi->blk_cnt_en = blk_cnt_en;
+}
+//add shao
+
 static int f2fs_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct f2fs_sb_info *sbi;
@@ -2599,6 +2613,10 @@ try_onemore:
 			le64_to_cpu(seg_i->journal->info.kbytes_written);
 
 	build_gc_manager(sbi);
+
+//add shao
+	build_block_cnt_manager(sbi);
+//add shao
 
 	/* get an inode for node space */
 	sbi->node_inode = f2fs_iget(sb, F2FS_NODE_INO(sbi));
