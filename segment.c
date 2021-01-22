@@ -1825,6 +1825,12 @@ static void update_sit_entry(struct f2fs_sb_info *sbi, block_t blkaddr, int del)
 	new_vblocks = se->valid_blocks + del;
 	offset = GET_BLKOFF_FROM_SEG0(sbi, blkaddr);
 
+
+//add shao
+	if(new_vblocks > sbi->blocks_per_seg)
+		printk(KERN_INFO "f308:over 512");
+//add shao
+
 	f2fs_bug_on(sbi, (new_vblocks >> (sizeof(unsigned short) << 3) ||
 				(new_vblocks > sbi->blocks_per_seg)));
 
@@ -2682,11 +2688,12 @@ void allocate_data_block_with_hotness(struct f2fs_sb_info *sbi, struct page *pag
 		struct f2fs_summary *sum, int type)
 {
 	struct sit_info *sit_i = SIT_I(sbi);
-	struct hotness_curseg_info *hotness_curseg;
-	hotness_curseg = HOTNESS_CURSEG_I(sbi, type);
+	struct hotness_curseg_info *hotness_curseg = HOTNESS_CURSEG_I(sbi, type);
+	mutex_lock(&hotness_curseg->hotness_curseg_mutex);
+	down_write(&sit_i->sentry_lock);
+	
 	*new_blkaddr = HOTNESS_NEXT_FREE_BLKADDR(sbi, hotness_curseg);
 	__hotness_add_sum_entry(sbi, type, sum);
-	down_write(&sit_i->sentry_lock);
 	__hotness_refresh_next_blkoff(hotness_curseg);
 	if (!__hotness_has_curseg_space(sbi, type))
 		sit_i->hotness_s_ops->hotness_allocate_segment(sbi, type);
@@ -2698,6 +2705,8 @@ void allocate_data_block_with_hotness(struct f2fs_sb_info *sbi, struct page *pag
 	locate_dirty_segment(sbi, GET_SEGNO(sbi, *new_blkaddr));
 
 	up_write(&sit_i->sentry_lock);
+	mutex_unlock(&hotness_curseg->hotness_curseg_mutex);
+
 }
 //add shao
 
@@ -2755,48 +2764,146 @@ static unsigned int get_new_IRR(struct f2fs_sb_info *sbi, block_t old_blkaddr){
 }
 
 static int get_type_by_hotness(unsigned int hotness, struct f2fs_sb_info *sbi){
-	//利用率是0-20%
-	int type = 0;
-	if(sbi->block_count[2] < 2936399){
+	//9种标准，每种16个type
+	unsigned int type[16] = {0};
+	
+	//利用率是0-10%
+	if(sbi->block_count[2] < 1087485){
 		//用10%的指标
-		if(hotness < 80000)
-			type =0;
-		else if(hotness < 140000)
-			type =1;
-		else
-			type =2;
+		type[0] = 2 * 10000;
+		type[1] = 4 * 10000;
+		type[2] = 5 * 10000;
+		type[3] = 6 * 10000;
+		type[4] = 8 * 10000;
+		type[5] = MAX_IRR + 1;
 	}
-	//利用率是20-40%
-	else if(sbi->block_count[2] < 7643976){
+	//利用率是10-20%
+	else if(sbi->block_count[2] < 2936399){
+		//用20%的指标
+		type[0] = 2 * 10000;
+		type[1] = 4 * 10000;
+		type[2] = 6 * 10000;
+		type[3] = 8 * 10000;
+		type[4] = 10 * 10000;
+		type[5] = 12 * 10000;
+		type[6] = MAX_IRR + 1;
+	}
+	//利用率是20-30%
+	else if(sbi->block_count[2] < 5111462){
 		//用30%的指标
-		if(hotness < 200000)
-			type =0;
-		else if(hotness < 1500000)
-			type =1;
-		else
-			type =2;
+		type[0] = 2 * 10000;
+		type[1] = 4 * 10000;
+		type[2] = 6 * 10000;
+		type[3] = 8 * 10000;
+		type[4] = 10 * 10000;
+		type[5] = 11 * 10000;
+		type[6] = 13 * 10000;
+		type[7] = 20 * 10000;
+		type[8] = MAX_IRR + 1;
+		
 	}
-	//利用率是40-60%
-	else if(sbi->block_count[2] < 12734641){
+	//利用率是30-40%
+	else if(sbi->block_count[2] < 7643976){
+		//用40%的指标
+		type[0] = 2 * 10000;
+		type[1] = 4 * 10000;
+		type[2] = 5 * 10000;
+		type[3] = 7 * 10000;
+		type[4] = 8 * 10000;
+		type[5] = 10 * 10000;
+		type[6] = 11 * 10000;
+		type[7] = 13 * 10000;
+		type[8] = 16 * 10000;
+		type[9] = MAX_IRR + 1;
+	}
+	//利用率是40-50%
+	else if(sbi->block_count[2] < 10012609){
 		//用50%的指标
-		if(hotness < 400000)
-			type =0;
-		else if(hotness < 8000000)
-			type =1;
-		else
-			type =2;
+		type[0] = 2 * 10000;
+		type[1] = 4 * 10000;
+		type[2] = 6 * 10000;
+		type[3] = 8 * 10000;
+		type[4] = 105000;
+		type[5] = 12  * 10000;
+		type[6] = 14 * 10000;
+		type[7] = 16 * 10000;
+		type[8] = 20 * 10000;
+		type[9] = MAX_IRR + 1;
 	}
-	//利用率是90%
-	else{
+	//利用率是50-60%
+	else if(sbi->block_count[2] < 12734641){
+		//用60%的指标
+		type[0] = 2 * 10000;
+		type[1] = 4 * 10000;
+		type[2] = 6 * 10000;
+		type[3] = 10 * 10000;
+		type[4] = 125000;
+		type[5] = 165000;
+		type[6] = 20 * 10000;
+		type[7] = 25 * 10000;
+		type[8] = 1000 * 10000;
+		type[9] = MAX_IRR + 1;
+	}
+	//利用率是60-70%
+	else if(sbi->block_count[2] < 15652057){
 		//用70%的指标
-		if(hotness < 400000)
-			type =0;
-		else if(hotness < 12000000)
-			type =1;
-		else
-			type =2;
+		type[0] = 2 * 10000;
+		type[1] = 4 * 10000;
+		type[2] = 5 * 10000;
+		type[3] = 86000;
+		type[4] = 125000;
+		type[5] = 175000;
+		type[6] = 225000;
+		type[7] = 275000;
+		type[8] = 1100 * 10000;
+		type[9] = MAX_IRR + 1;
 	}
-	return type;
+	//利用率是70-80%
+	else if(sbi->block_count[2] < 18594069){
+		//用80%的指标
+		type[0] = 2 * 10000;
+		type[1] = 4 * 10000;
+		type[2] = 65000;
+		type[3] = 10 * 10000;
+		type[4] = 12 * 10000;
+		type[5] = 15 * 10000;
+		type[6] = 19 * 10000;
+		type[7] = 23 * 10000;
+		type[8] = 27 * 10000;
+		type[9] = 30 * 10000;
+		type[10] = 138 * 10000;
+		type[11] = 1048 * 10000;
+		type[12] = 1450 * 10000;
+		type[13] = 1646 * 10000;
+		type[14] = 1871 * 10000;
+		type[15] = MAX_IRR + 1;
+	}
+	//利用率是80-90%
+	else{
+		//用90%的指标
+		type[0] = 18000;
+		type[1] = 43000;
+		type[2] = 61000;
+		type[3] = 92000;
+		type[4] = 138000;
+		type[5] = 192000;
+		type[6] = 208000;
+		type[7] = 25 * 10000;
+		type[8] = 30 * 10000;
+		type[9] = 60 * 10000;
+		type[10] = 559 * 10000;
+		type[11] = 1000 * 10000;
+		type[12] = 1520 * 10000;
+		type[13] = 1790 * 10000;
+		type[14] = 2016 * 10000;
+		type[15] = MAX_IRR + 1;
+	}
+	int c = 0;
+	for(c = 0; c < NR_HOTNESS_CURSEG_DATA_TYPE; c++){
+		if(hotness < type[c])
+			break;
+	}
+	return c;
 
 }
 //add shao end
@@ -2806,45 +2913,26 @@ static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)
 	unsigned int new_IRR = 0;
 	int type = __get_segment_type(fio);
 	int err;
-
 reallocate:
-//add shao start
 	if(type == CURSEG_WARM_DATA){
-
-/*
-		// WARM DATA PAGE++
 		fio->sbi->block_count[2]++;
-		// 计算新的IRR
+		//计算新的IRR
 		new_IRR = get_new_IRR(fio->sbi, fio->old_blkaddr);
-
-		// 通过热度信息获取应从哪一等级分配block
 		type = get_type_by_hotness(new_IRR, fio->sbi);
-		// 从type类型的segment分配一个block出来
 		allocate_data_block_with_hotness(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type);
-
-		// 新地址填上新的热度
+		//新地址填上新的热度
 		set_hotness_info(fio->sbi, fio->new_blkaddr, new_IRR, fio->sbi->block_count[2]);
-		// 旧地址hotness和mtime置0
+		//旧地址hotness和mtime置0
 		set_hotness_info(fio->sbi, fio->old_blkaddr, MAX_IRR, 0);
-
-*/
+	}else{
 		allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
-			&fio->new_blkaddr, sum, type, fio, true);
+				&fio->new_blkaddr, sum, type, fio, true);
 	}
-	else{
-		allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
-			&fio->new_blkaddr, sum, type, fio, true);
-	}
-//add shao end
-
-
 	/* writeout dirty page into bdev */
 	err = f2fs_submit_page_write(fio);
 	if (err == -EAGAIN) {
 		fio->old_blkaddr = fio->new_blkaddr;
 		goto reallocate;
-	} else if (!err) {
-		update_device_state(fio);
 	}
 }
 
@@ -3718,13 +3806,14 @@ static int build_hotness_curseg(struct f2fs_sb_info *sbi)
 	unsigned int segno = CURSEG_I(sbi, CURSEG_WARM_DATA)->segno;
 	int dir = ALLOC_RIGHT;
 
-	array = kcalloc(NR_CURSEG_DATA_TYPE, sizeof(*array), GFP_KERNEL);
+	array = kcalloc(NR_HOTNESS_CURSEG_DATA_TYPE, sizeof(*array), GFP_KERNEL);
 	if (!array)
 		return -ENOMEM;
 
 	SM_I(sbi)->hotness_curseg_array = array;
 
-	for (i = 0; i < NR_CURSEG_DATA_TYPE; i++) {
+	for (i = 0; i < NR_HOTNESS_CURSEG_DATA_TYPE; i++) {
+		mutex_init(&array[i].hotness_curseg_mutex);
 		array[i].sum_blk = kzalloc(PAGE_SIZE, GFP_KERNEL);
 		if (!array[i].sum_blk)
 			return -ENOMEM;

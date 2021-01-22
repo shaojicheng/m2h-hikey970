@@ -430,10 +430,14 @@ static int stat_show(struct seq_file *s, void *v)
 				si->page_mem >> 10);
 //add shao
 		for(i = 0; i < MAIN_SEGS(si->sbi) * si->sbi->blocks_per_seg; i++){
-			if(i % 10 == 0)
-				seq_puts(s, "\n");	
-			seq_printf(s, "IRR: %u\tLWS: %u, ", (si->sbi->blk_cnt_en + i)->IRR, (si->sbi->blk_cnt_en + i)->LWS);  
+			if((si->sbi->blk_cnt_en + i)->IRR != MAX_IRR)
+				seq_printf(s, "%u\t%u\n", (si->sbi->blk_cnt_en + i)->IRR, (si->sbi->blk_cnt_en + i)->LWS);  
 		}
+		seq_puts(s, "\n sgeno: \n");
+		struct hotness_curseg_info *array = SM_I(si->sbi)->hotness_curseg_array;
+		for (i = 0; i < NR_HOTNESS_CURSEG_DATA_TYPE; i++) {
+			seq_printf(s, "hotness curseg %d =  %u;\n", i, array[i].segno);
+		}	
 //add shao
 	}
 	mutex_unlock(&f2fs_stat_mutex);

@@ -17,7 +17,7 @@
 
 
 //add shao
-#define MAX_IRR				((unsigned int)(~0))
+#define MAX_IRR				((unsigned int)(~0) - 1)
 //add shao
 
 #define DEF_RECLAIM_PREFREE_SEGMENTS	5	/* 5% over total segments */
@@ -335,6 +335,7 @@ struct curseg_info {
 
 //add shao
 struct hotness_curseg_info {
+	struct mutex hotness_curseg_mutex;		/* lock for consistency */
 	struct f2fs_summary_block *sum_blk;	/* cached summary block */
 	unsigned int segno;			/* current segment number */
 	unsigned short next_blkoff;		/* next block offset to write */
