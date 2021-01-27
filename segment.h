@@ -152,7 +152,12 @@ enum {
  */
 enum {
 	LFS = 0,
-	SSR
+	SSR,
+// add shao
+	WARM_DATA_LFS,
+	WARM_DATA_FG_GC,
+	CUR_SAMPLE	// 用于模拟fifo队列
+// add shao
 };
 
 /*

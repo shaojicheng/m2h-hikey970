@@ -949,6 +949,11 @@ enum iostat_type {
 };
 
 struct f2fs_io_info {
+
+// add shao
+	bool is_fg_gc_page;
+// add shao
+
 	struct f2fs_sb_info *sbi;	/* f2fs_sb_info pointer */
 	nid_t ino;		/* inode number */
 	enum page_type type;	/* contains DATA/NODE/META/META_FLUSH */
@@ -1126,6 +1131,11 @@ struct f2fs_sb_info {
 	/* for cleaning operations */
 	struct mutex gc_mutex;			/* mutex for GC */
 	struct f2fs_gc_kthread	*gc_thread;	/* GC thread */
+
+// add shao
+	struct task_struct *sample_task;
+// add shao
+
 	unsigned int cur_victim_sec;		/* current victim section num */
 
 	/* threshold for converting bg victims for fg */
@@ -1142,7 +1152,7 @@ struct f2fs_sb_info {
 	struct f2fs_stat_info *stat_info;	/* FS status information */
 	unsigned int segment_count[2];		/* # of allocated segments */
 //	unsigned int block_count[2];		/* # of allocated blocks */
-	unsigned int block_count[3];		/* # of allocated blocks */
+	unsigned int block_count[5];		/* # of allocated blocks */
 	atomic_t inplace_count;		/* # of inplace update */
 	atomic64_t total_hit_ext;		/* # of lookup extent cache */
 	atomic64_t read_hit_rbtree;		/* # of hit rbtree extent node */
@@ -1194,7 +1204,21 @@ struct f2fs_sb_info {
 #endif
 
 //add shao
+	// 所有block的热度信息
 	struct blk_cnt_entry *blk_cnt_en;
+	// 使用的样本数量
+	unsigned int SAMPLE_SIZE;
+	unsigned int *sample_irr_array;
+	// 设定的质心数
+	int CENTROID_NR;
+	// 真实质心数
+	int points;
+	// 聚类后得到的质心
+	unsigned int *centroid;
+	// 从sysfs获取的质心，用一个字符串表示，""质心数	质心0	质心1 ..."
+	char *str_centroid;
+	//超过这个阈值就视为冷数据
+	unsigned int COLD_DATA_THRESHOLD;
 //add shao
 
 #ifdef CONFIG_QUOTA
@@ -2705,7 +2729,9 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 			struct f2fs_io_info *fio, bool add_list);
 			
 //add shao start
-static void set_hotness_info(struct f2fs_sb_info *sbi, block_t blkaddr, unsigned int IRR_val, unsigned int LWS_val);
+void get_hotness_info(struct f2fs_sb_info *sbi, block_t old_blkaddr, unsigned int *old_IRR, unsigned int *old_LWS);
+void set_hotness_info(struct f2fs_sb_info *sbi, block_t blkaddr, unsigned int IRR_val, unsigned int LWS_val);
+unsigned int get_new_IRR(struct f2fs_sb_info *sbi, block_t old_blkaddr);
 void allocate_data_block_with_hotness(struct f2fs_sb_info *sbi, struct page *page,
 		block_t old_blkaddr, block_t *new_blkaddr,
 		struct f2fs_summary *sum, int type);
@@ -2807,6 +2833,12 @@ int f2fs_migrate_page(struct address_space *mapping, struct page *newpage,
 /*
  * gc.c
  */
+
+// add shao
+void start_kMeans_thread(struct f2fs_sb_info *sbi);
+void stop_kMeans_thread(struct f2fs_sb_info *sbi);
+// add shao
+
 int start_gc_thread(struct f2fs_sb_info *sbi);
 void stop_gc_thread(struct f2fs_sb_info *sbi);
 block_t start_bidx_of_node(unsigned int node_ofs, struct inode *inode);

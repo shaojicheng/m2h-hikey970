@@ -16,6 +16,8 @@
 #include <linux/kthread.h>
 #include <linux/delay.h>
 #include <linux/freezer.h>
+#include <linux/string.h>  
+
 
 #include "f2fs.h"
 #include "node.h"
@@ -182,8 +184,11 @@ static void select_policy(struct f2fs_sb_info *sbi, int gc_type,
 		p->ofs_unit = 1;
 	} else {
 		p->gc_mode = select_gc_type(sbi->gc_thread, gc_type);
-		p->dirty_segmap = dirty_i->dirty_segmap[DIRTY];
-		p->max_search = dirty_i->nr_dirty[DIRTY];
+		//p->dirty_segmap = dirty_i->dirty_segmap[DIRTY];
+		//p->max_search = dirty_i->nr_dirty[DIRTY];
+		// 只对dirty warm data做gc
+		p->dirty_segmap = dirty_i->dirty_segmap[DIRTY_WARM_DATA];
+		p->max_search = dirty_i->nr_dirty[DIRTY_WARM_DATA];
 		p->ofs_unit = sbi->segs_per_sec;
 	}
 
@@ -205,7 +210,8 @@ static unsigned int get_max_cost(struct f2fs_sb_info *sbi,
 	if (p->alloc_mode == SSR)
 		return sbi->blocks_per_seg;
 	if (p->gc_mode == GC_GREEDY)
-		return 2 * sbi->blocks_per_seg * p->ofs_unit;
+//		return 2 * sbi->blocks_per_seg * p->ofs_unit;
+		return UINT_MAX;
 	else if (p->gc_mode == GC_CB)
 		return UINT_MAX;
 	else /* No other gc_mode */
@@ -234,6 +240,70 @@ static unsigned int check_bg_victims(struct f2fs_sb_info *sbi)
 	}
 	return NULL_SEGNO;
 }
+
+
+//add finalG start
+/*
+static unsigned int get_ch_cost(struct f2fs_sb_info *sbi, unsigned int segno)
+{
+	//1、计算当前seg中冷blk的数目(lws为0-10%内的算作冷)
+	struct seg_entry *sentry;
+	unsigned int i = 0, cold_cnt = 0, vblocks = 0, m = 10, n = 9;
+	
+	if(utilization(sbi) >= 60 && utilization(sbi) < 70){
+		m = 100;
+		n = 85;
+	}else if(utilization(sbi) >= 70 && utilization(sbi) < 80){
+		m = 100;
+		n = 80;
+	}else if(utilization(sbi) >= 80){
+		m = 100;
+		n = 75;
+	}
+	
+	struct sit_info *sit_i = SIT_I(sbi);
+	//mutex_lock(&sit_i->sentry_lock);
+	sentry = get_seg_entry(sbi, segno);
+	for(i = 0; i < 512; i++){
+		if(f2fs_test_bit(i, sentry->cur_valid_map)){
+			if(sbi->blk_cnt_en[segno * 512 + i].LWS <= sbi->block_count[WARM_DATA_LFS] / m * n){
+				cold_cnt++;
+			}
+		}
+	}
+	//mutex_unlock(&sit_i->sentry_lock);
+	//综合free因素和cold因素
+	vblocks = get_valid_blocks(sbi, segno, true);
+	return UINT_MAX - (512 - vblocks) * 100 - cold_cnt * 50;
+}
+*/
+
+static unsigned int get_ch_cost(struct f2fs_sb_info *sbi, unsigned int segno)
+{
+	//1、计算当前seg中冷blk的数目(lws为0-10%内的算作冷)
+	
+	unsigned int i = 0, u = 0, vblocks = 0;
+	unsigned int max_lws_in_seg = 0, age = 0;
+//	struct sit_info *sit_i = SIT_I(sbi);
+	struct seg_entry *sentry = get_seg_entry(sbi, segno);
+
+	for(i = 0; i < 512; i++){
+		if(f2fs_test_bit(i, sentry->cur_valid_map)){
+			if(sbi->blk_cnt_en[segno * 512 + i].LWS > max_lws_in_seg){
+				max_lws_in_seg = sbi->blk_cnt_en[segno * 512 + i].LWS;
+			}
+		}
+	}
+	//age = (sbi->block_count[WARM_DATA_LFS] - max_lws_in_seg) / 10000;
+	//age = (sbi->block_count[WARM_DATA_LFS] - max_lws_in_seg) / 40000;
+	age = 100 - div64_u64(100 * max_lws_in_seg, sbi->block_count[WARM_DATA_LFS]);
+	//综合free因素和cold因素
+	vblocks = get_valid_blocks(sbi, segno, true);
+	u = (vblocks * 1000) >> sbi->log_blocks_per_seg;
+	return UINT_MAX - ((1000 * (1000 - u) * age) / (1000 + u));
+}
+
+//add finalG end
 
 static unsigned int get_cb_cost(struct f2fs_sb_info *sbi, unsigned int segno)
 {
@@ -278,6 +348,7 @@ static inline unsigned int get_gc_cost(struct f2fs_sb_info *sbi,
 		return get_valid_blocks(sbi, segno, true);
 	else
 		return get_cb_cost(sbi, segno);
+		//return get_ch_cost(sbi, segno);
 }
 
 static unsigned int count_bits(const unsigned long *addr,
@@ -398,6 +469,37 @@ got_it:
 				set_bit(secno, dirty_i->victim_secmap);
 		}
 		*result = (p.min_segno / p.ofs_unit) * p.ofs_unit;
+
+
+// add shao
+//printk(KERN_INFO "get victim success!!\n");
+		//输出cb选中的victim的valid分布情况
+		if (gc_type == FG_GC){
+			struct seg_entry *sentry;
+			struct sit_info *sit_i = SIT_I(sbi);
+			int level_nr = 5;
+			int level_cnt[20];
+			int j = 0, k = 0, cur_level = 0;
+			//mutex_lock(&sit_i->sentry_lock);
+			//各个level的cnt
+			for(k = 0; k < level_nr; k++){
+				level_cnt[k] = 0;
+			}
+			int valid_cnt = 0, level_width = sbi->block_count[WARM_DATA_LFS] / level_nr;
+			sentry = get_seg_entry(sbi, *result);
+			valid_cnt = sentry->valid_blocks;
+			for(j = 0; j < 512; j++){
+				if(f2fs_test_bit(j, sentry->cur_valid_map)){
+					cur_level = sbi->blk_cnt_en[*result * 512 + j].LWS / level_width;
+					if(cur_level == level_nr)
+						cur_level = level_nr - 1; 
+					level_cnt[cur_level]++;
+				}
+			}
+			printk(KERN_INFO "shao %d: %d, %d, %d, %d, %d, \n", valid_cnt, level_cnt[0], level_cnt[1], level_cnt[2], level_cnt[3], level_cnt[4]);
+			//mutex_unlock(&sit_i->sentry_lock);
+		}
+// add shao
 
 		trace_f2fs_get_victim(sbi->sb, type, gc_type, &p,
 				sbi->cur_victim_sec,
@@ -728,6 +830,11 @@ static void move_data_page(struct inode *inode, block_t bidx, int gc_type,
 		set_cold_data(page);
 	} else {
 		struct f2fs_io_info fio = {
+			
+// add shao			
+			.is_fg_gc_page = true,
+// add shao
+
 			.sbi = F2FS_I_SB(inode),
 			.ino = inode->i_ino,
 			.type = DATA,
@@ -1097,3 +1204,81 @@ void build_gc_manager(struct f2fs_sb_info *sbi)
 		SIT_I(sbi)->last_victim[ALLOC_NEXT] =
 				GET_SEGNO(sbi, FDEV(0).end_blk) + 1;
 }
+
+
+// add shao
+/*
+ * 聚类的函数，这里不实现聚类算法，通过sysfs的方式把数据暴露出去，在NPU上实现聚类
+ * 在这个函数里获取聚类结果，并把数据放到sbi->points 和 sbi->centroid 中
+ */
+
+static int kMeans_func(void *data){
+	struct f2fs_sb_info *sbi = data;
+	unsigned int tmp = 0, i = 0, j = 0;
+	while (!kthread_should_stop()) {
+		
+		printk(KERN_INFO "shao Kmeans result: %s", sbi->str_centroid);
+		/*
+		// 获取第一个数，也就是质心的数量
+		do{
+			tmp = tmp * 10 +  (*(sbi->str_centroid + j) - '0');
+			++j;
+		}while(*(sbi->str_centroid + j) != ' ' && *(sbi->str_centroid + j) != '\0');
+		++j;
+		sbi->points = tmp;
+		
+		printk(KERN_INFO "shao %u:", tmp);
+
+		// 获取points个质心
+		for(i = 0; i < sbi->points; ++i){
+			tmp = 0;
+			do{
+				tmp = tmp * 10 +  (*(sbi->str_centroid + j) - '0');
+				++j;
+			}while(*(sbi->str_centroid + j) != ' ' && *(sbi->str_centroid + j) != '\0');
+			++j;
+			*(sbi->centroid + i) = tmp;
+			printk(KERN_INFO "shao %u: %u", i, tmp);
+		}
+		*/
+        msleep_interruptible(5000);
+    }
+	return 0;
+}
+
+void start_kMeans_thread(struct f2fs_sb_info *sbi){
+	int i;
+	// 样本
+	sbi->SAMPLE_SIZE = 10000;
+	sbi->sample_irr_array = vzalloc(sizeof(unsigned int) * sbi->SAMPLE_SIZE);
+	for(i = 0; i < sbi->SAMPLE_SIZE; ++i){
+		*(sbi->sample_irr_array + i) = 0;
+	}
+
+	// 聚类结果
+	sbi->CENTROID_NR = 10;
+	sbi->centroid = vzalloc(sizeof(unsigned int) * sbi->CENTROID_NR + 1);
+	for(i = 0; i < sbi->CENTROID_NR; ++i)
+		*(sbi->centroid + i) = 0;
+
+	memcpy(sbi->str_centroid, "10 0 0 0 0 0 0 0 0 0 0", 64);
+
+
+	sbi->COLD_DATA_THRESHOLD = 500000;
+	sbi->sample_task = kthread_run(kMeans_func, sbi, "f2fs_Kmeans");
+	if (IS_ERR(sbi->sample_task)) {
+		printk(KERN_INFO "shao kMeans thread err when start!!!!!!!!!!!!");
+		sbi->sample_task = NULL;
+	}
+}
+
+void stop_kMeans_thread(struct f2fs_sb_info *sbi)
+{
+	struct task_struct *sample_task = sbi->sample_task;
+	if (!sample_task)
+		return;
+	kthread_stop(sample_task);
+	sbi->sample_task = NULL;
+	printk("shao kMeans thread has stopped \n");
+}
+// add shao

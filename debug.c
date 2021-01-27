@@ -407,8 +407,10 @@ static int stat_show(struct seq_file *s, void *v)
 		seq_printf(s, "SSR: %u blocks in %u segments\n",
 			   si->block_count[SSR], si->segment_count[SSR]);
 //add shao
-		seq_printf(s, "UPDATE: %u blocks\n",
-			   si->sbi->block_count[2]);
+		seq_printf(s, "WARM DATA LFS: %u blocks\n",
+			   si->sbi->block_count[WARM_DATA_LFS]);
+		seq_printf(s, "WARM DATA FG_GC: %u blocks\n",
+			   si->sbi->block_count[WARM_DATA_FG_GC]);
 //add shao
 		seq_printf(s, "LFS: %u blocks in %u segments\n",
 			   si->block_count[LFS], si->segment_count[LFS]);
@@ -428,17 +430,14 @@ static int stat_show(struct seq_file *s, void *v)
 				si->cache_mem >> 10);
 		seq_printf(s, "  - paged : %llu KB\n",
 				si->page_mem >> 10);
+
 //add shao
-		for(i = 0; i < MAIN_SEGS(si->sbi) * si->sbi->blocks_per_seg; i++){
-			if((si->sbi->blk_cnt_en + i)->IRR != MAX_IRR)
-				seq_printf(s, "%u\t%u\n", (si->sbi->blk_cnt_en + i)->IRR, (si->sbi->blk_cnt_en + i)->LWS);  
-		}
-		seq_puts(s, "\n sgeno: \n");
-		struct hotness_curseg_info *array = SM_I(si->sbi)->hotness_curseg_array;
-		for (i = 0; i < NR_HOTNESS_CURSEG_DATA_TYPE; i++) {
-			seq_printf(s, "hotness curseg %d =  %u;\n", i, array[i].segno);
-		}	
-//add shao
+	// 把热度信息暴露到用户态
+	for(i = 0; i < si->sbi->SAMPLE_SIZE; ++i){
+		seq_printf(s, "%u\n", *(si->sbi->sample_irr_array + i));
+	}
+
+//add finalG
 	}
 	mutex_unlock(&f2fs_stat_mutex);
 	return 0;

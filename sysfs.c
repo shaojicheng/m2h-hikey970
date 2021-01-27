@@ -195,6 +195,47 @@ static ssize_t f2fs_sbi_store(struct f2fs_attr *a,
 	return count;
 }
 
+
+// add shao
+/*
+ * 	原生的函数是unsigned int, 这里新加两个函数， 以支持char*
+ */
+// 在sysfs中显示
+static ssize_t f2fs_sbi_show_sbi_str(struct f2fs_attr *a,
+			struct f2fs_sb_info *sbi, char *buf)
+{
+	char *ptr = NULL;
+	char *ui;
+
+	ptr = (char*)(sbi);
+	if (!ptr)
+		return -EINVAL;
+
+	ui = *(char**)(ptr + a->offset);
+
+	return snprintf(buf, PAGE_SIZE, "%s\n", ui);
+}
+
+// 从sysfs中加载
+static ssize_t f2fs_sbi_store_sbi_str(struct f2fs_attr *a,
+			struct f2fs_sb_info *sbi,
+			const char *buf, size_t count)
+{
+	char *ptr;
+	char *ui;
+
+	ptr = (char *)(sbi);
+	if (!ptr)
+		return -EINVAL;
+
+	ui = *(char**)(ptr + a->offset);
+
+	// 从sysfs文件缓冲区拷贝到sbi
+	memcpy(ui, buf, 64);
+	return count;
+}
+// add shao
+
 static ssize_t f2fs_attr_show(struct kobject *kobj,
 				struct attribute *attr, char *buf)
 {
@@ -296,6 +337,11 @@ F2FS_RW_ATTR(NM_INFO, f2fs_nm_info, ra_nid_pages, ra_nid_pages);
 F2FS_RW_ATTR(NM_INFO, f2fs_nm_info, dirty_nats_ratio, dirty_nats_ratio);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, max_victim_search, max_victim_search);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, dir_level, dir_level);
+
+// add shao
+F2FS_ATTR_OFFSET(F2FS_SBI, str_centroid, 0644, f2fs_sbi_show_sbi_str, f2fs_sbi_store_sbi_str, offsetof(struct f2fs_sb_info, str_centroid));
+// add shao
+
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, cp_interval, interval_time[CP_TIME]);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, idle_interval, interval_time[REQ_TIME]);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, iostat_enable, iostat_enable);
@@ -343,6 +389,11 @@ static struct attribute *f2fs_attrs[] = {
 	ATTR_LIST(ram_thresh),
 	ATTR_LIST(ra_nid_pages),
 	ATTR_LIST(dirty_nats_ratio),
+
+// add shao
+	ATTR_LIST(str_centroid),
+// add shao
+
 	ATTR_LIST(cp_interval),
 	ATTR_LIST(idle_interval),
 	ATTR_LIST(iostat_enable),

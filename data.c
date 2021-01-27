@@ -1496,6 +1496,9 @@ static int __write_data_page(struct page *page, bool *submitted,
 	bool need_balance_fs = false;
 	int err = 0;
 	struct f2fs_io_info fio = {
+// add shao
+		.is_fg_gc_page = false,
+// add shao
 		.sbi = sbi,
 		.ino = inode->i_ino,
 		.type = DATA,

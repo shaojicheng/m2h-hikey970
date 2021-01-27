@@ -822,6 +822,15 @@ static void destroy_device_list(struct f2fs_sb_info *sbi)
 	kfree(sbi->devs);
 }
 
+
+// add shao
+static void destroy_block_cnt_manager(struct f2fs_sb_info *sbi){
+	printk(KERN_INFO "shao destroy block cnt space!!!");
+	vfree(sbi->blk_cnt_en);
+	vfree(sbi->sample_irr_array);
+}
+// add shao
+
 static void f2fs_put_super(struct super_block *sb)
 {
 	struct f2fs_sb_info *sbi = F2FS_SB(sb);
@@ -873,6 +882,11 @@ static void f2fs_put_super(struct super_block *sb)
 
 	iput(sbi->node_inode);
 	iput(sbi->meta_inode);
+
+
+// add shao
+	destroy_block_cnt_manager(sbi);
+// add shao
 
 	/* destroy f2fs internal modules */
 	destroy_node_manager(sbi);
@@ -2088,6 +2102,12 @@ static void init_sb_info(struct f2fs_sb_info *sbi)
 	sbi->cur_victim_sec = NULL_SECNO;
 	sbi->max_victim_search = DEF_MAX_VICTIM_SEARCH;
 
+
+// add shao
+	sbi->str_centroid = vzalloc(64);
+	memcpy(sbi->str_centroid, "10 0 0 0 0 0 0 0 0 0 0", 64);
+// add shao
+
 	sbi->dir_level = DEF_DIR_LEVEL;
 	sbi->interval_time[CP_TIME] = DEF_CP_INTERVAL;
 	sbi->interval_time[REQ_TIME] = DEF_IDLE_INTERVAL;
@@ -2723,6 +2743,11 @@ skip_recovery:
 		if (err)
 			goto free_meta;
 	}
+
+// add shao
+	start_kMeans_thread(sbi);
+// add shao
+
 	kfree(options);
 
 	/* recover broken superblock */
@@ -2815,6 +2840,11 @@ static void kill_f2fs_super(struct super_block *sb)
 	if (sb->s_root) {
 		set_sbi_flag(F2FS_SB(sb), SBI_IS_CLOSE);
 		stop_gc_thread(F2FS_SB(sb));
+
+// add shao
+		stop_kMeans_thread(F2FS_SB(sb));
+// add shao
+
 		stop_discard_thread(F2FS_SB(sb));
 	}
 	kill_block_super(sb);

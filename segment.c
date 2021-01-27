@@ -1828,7 +1828,7 @@ static void update_sit_entry(struct f2fs_sb_info *sbi, block_t blkaddr, int del)
 
 //add shao
 	if(new_vblocks > sbi->blocks_per_seg)
-		printk(KERN_INFO "f308:over 512");
+		printk(KERN_INFO "shao f308:over 512");
 //add shao
 
 	f2fs_bug_on(sbi, (new_vblocks >> (sizeof(unsigned short) << 3) ||
@@ -2732,7 +2732,7 @@ static void update_device_state(struct f2fs_io_info *fio)
 }
 
 //add shao start
-static void get_hotness_info(struct f2fs_sb_info *sbi, block_t old_blkaddr, unsigned int *old_IRR, unsigned int *old_LWS){
+void get_hotness_info(struct f2fs_sb_info *sbi, block_t old_blkaddr, unsigned int *old_IRR, unsigned int *old_LWS){
 	unsigned int old_segno = 0, old_offset = 0;
 	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO){
 		old_segno = GET_SEGNO(sbi, old_blkaddr);
@@ -2742,7 +2742,7 @@ static void get_hotness_info(struct f2fs_sb_info *sbi, block_t old_blkaddr, unsi
 	}
 }
 
-static void set_hotness_info(struct f2fs_sb_info *sbi, block_t blkaddr, unsigned int IRR_val, unsigned int LWS_val){
+void set_hotness_info(struct f2fs_sb_info *sbi, block_t blkaddr, unsigned int IRR_val, unsigned int LWS_val){
 	unsigned int new_segno = 0, new_offset = 0;
 	if (GET_SEGNO(sbi, blkaddr) != NULL_SEGNO){
 		new_segno = GET_SEGNO(sbi, blkaddr);
@@ -2752,183 +2752,128 @@ static void set_hotness_info(struct f2fs_sb_info *sbi, block_t blkaddr, unsigned
 	}
 }
 
-static unsigned int get_new_IRR(struct f2fs_sb_info *sbi, block_t old_blkaddr){
+unsigned int get_new_IRR(struct f2fs_sb_info *sbi, block_t old_blkaddr){
 	unsigned int old_IRR = 0, new_IRR = MAX_IRR, old_LWS = 0;;
 	//不是第一次写，旧block存在,则通过公式计算得到新的热度
 	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO){
 		//获取旧地址的热度和时间信息
 		get_hotness_info(sbi, old_blkaddr, &old_IRR, &old_LWS);
-		new_IRR = sbi->block_count[2] - old_LWS;
+		new_IRR = sbi->block_count[WARM_DATA_LFS] - old_LWS;
 	}
 	return new_IRR;
 }
 
-static int get_type_by_hotness(unsigned int hotness, struct f2fs_sb_info *sbi){
-	//9种标准，每种16个type
-	unsigned int type[16] = {0};
-	
-	//利用率是0-10%
-	if(sbi->block_count[2] < 1087485){
-		//用10%的指标
-		type[0] = 2 * 10000;
-		type[1] = 4 * 10000;
-		type[2] = 5 * 10000;
-		type[3] = 6 * 10000;
-		type[4] = 8 * 10000;
-		type[5] = MAX_IRR + 1;
-	}
-	//利用率是10-20%
-	else if(sbi->block_count[2] < 2936399){
-		//用20%的指标
-		type[0] = 2 * 10000;
-		type[1] = 4 * 10000;
-		type[2] = 6 * 10000;
-		type[3] = 8 * 10000;
-		type[4] = 10 * 10000;
-		type[5] = 12 * 10000;
-		type[6] = MAX_IRR + 1;
-	}
-	//利用率是20-30%
-	else if(sbi->block_count[2] < 5111462){
-		//用30%的指标
-		type[0] = 2 * 10000;
-		type[1] = 4 * 10000;
-		type[2] = 6 * 10000;
-		type[3] = 8 * 10000;
-		type[4] = 10 * 10000;
-		type[5] = 11 * 10000;
-		type[6] = 13 * 10000;
-		type[7] = 20 * 10000;
-		type[8] = MAX_IRR + 1;
-		
-	}
-	//利用率是30-40%
-	else if(sbi->block_count[2] < 7643976){
-		//用40%的指标
-		type[0] = 2 * 10000;
-		type[1] = 4 * 10000;
-		type[2] = 5 * 10000;
-		type[3] = 7 * 10000;
-		type[4] = 8 * 10000;
-		type[5] = 10 * 10000;
-		type[6] = 11 * 10000;
-		type[7] = 13 * 10000;
-		type[8] = 16 * 10000;
-		type[9] = MAX_IRR + 1;
-	}
-	//利用率是40-50%
-	else if(sbi->block_count[2] < 10012609){
-		//用50%的指标
-		type[0] = 2 * 10000;
-		type[1] = 4 * 10000;
-		type[2] = 6 * 10000;
-		type[3] = 8 * 10000;
-		type[4] = 105000;
-		type[5] = 12  * 10000;
-		type[6] = 14 * 10000;
-		type[7] = 16 * 10000;
-		type[8] = 20 * 10000;
-		type[9] = MAX_IRR + 1;
-	}
-	//利用率是50-60%
-	else if(sbi->block_count[2] < 12734641){
-		//用60%的指标
-		type[0] = 2 * 10000;
-		type[1] = 4 * 10000;
-		type[2] = 6 * 10000;
-		type[3] = 10 * 10000;
-		type[4] = 125000;
-		type[5] = 165000;
-		type[6] = 20 * 10000;
-		type[7] = 25 * 10000;
-		type[8] = 1000 * 10000;
-		type[9] = MAX_IRR + 1;
-	}
-	//利用率是60-70%
-	else if(sbi->block_count[2] < 15652057){
-		//用70%的指标
-		type[0] = 2 * 10000;
-		type[1] = 4 * 10000;
-		type[2] = 5 * 10000;
-		type[3] = 86000;
-		type[4] = 125000;
-		type[5] = 175000;
-		type[6] = 225000;
-		type[7] = 275000;
-		type[8] = 1100 * 10000;
-		type[9] = MAX_IRR + 1;
-	}
-	//利用率是70-80%
-	else if(sbi->block_count[2] < 18594069){
-		//用80%的指标
-		type[0] = 2 * 10000;
-		type[1] = 4 * 10000;
-		type[2] = 65000;
-		type[3] = 10 * 10000;
-		type[4] = 12 * 10000;
-		type[5] = 15 * 10000;
-		type[6] = 19 * 10000;
-		type[7] = 23 * 10000;
-		type[8] = 27 * 10000;
-		type[9] = 30 * 10000;
-		type[10] = 138 * 10000;
-		type[11] = 1048 * 10000;
-		type[12] = 1450 * 10000;
-		type[13] = 1646 * 10000;
-		type[14] = 1871 * 10000;
-		type[15] = MAX_IRR + 1;
-	}
-	//利用率是80-90%
-	else{
-		//用90%的指标
-		type[0] = 18000;
-		type[1] = 43000;
-		type[2] = 61000;
-		type[3] = 92000;
-		type[4] = 138000;
-		type[5] = 192000;
-		type[6] = 208000;
-		type[7] = 25 * 10000;
-		type[8] = 30 * 10000;
-		type[9] = 60 * 10000;
-		type[10] = 559 * 10000;
-		type[11] = 1000 * 10000;
-		type[12] = 1520 * 10000;
-		type[13] = 1790 * 10000;
-		type[14] = 2016 * 10000;
-		type[15] = MAX_IRR + 1;
-	}
-	int c = 0;
-	for(c = 0; c < NR_HOTNESS_CURSEG_DATA_TYPE; c++){
-		if(hotness < type[c])
-			break;
-	}
-	return c;
-
+void add_to_sample(struct f2fs_sb_info *sbi, unsigned int IRR_val, unsigned int LWS_val){	
+	*(sbi->sample_irr_array + sbi->block_count[CUR_SAMPLE]) = IRR_val;
+	++(sbi->block_count[CUR_SAMPLE]);
+	// 用数组模拟一个fifo的队列，当数组满了，就从0开始覆盖旧数据，保证只抽取最近的SAMPLE_SIZE个样本
+	if(sbi->block_count[CUR_SAMPLE] == sbi->SAMPLE_SIZE)
+		sbi->block_count[CUR_SAMPLE] = 0;
 }
-//add shao end
+
+static unsigned int get_distance(unsigned int a, unsigned int b){
+    return a > b? a - b: b - a;
+}
+
+static int get_type_by_hotness(unsigned int hotness, struct f2fs_sb_info *sbi){
+	int i = 0, res = 0;
+	unsigned int min_dis = (unsigned int)(~0) -1;
+	//大于COLD_DATA_THRESHOLD的直接写成冷数据，其他按照距离来
+	if(hotness > sbi->COLD_DATA_THRESHOLD)	
+		return sbi->points;
+	for(i = 0; i < sbi->points; i++){
+		if(get_distance(*(sbi->centroid + i), hotness) < min_dis){
+			min_dis = get_distance(*(sbi->centroid + i), hotness);
+			res = i;
+		}
+	}
+	return res;
+}
+
+
+//现在统计时为了帮助gc选择冷数据，包括DATA和NODE，为了准确排除gc导致的移动，它不应该数据的冷热判断
+//下面的版本是针对所有data和node的
+/*
+static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)
+{
+	unsigned int new_IRR = 0;
+	int type = __get_segment_type(fio);
+	int err;
+	unsigned int old_IRR = 0, old_LWS = 0;
+reallocate:
+	if(is_cold_data(fio->page)){
+			//如果是GC导致的更新，肯定存在旧地址，那么直接保持以前的热度，同时计数不变,但是热度还是要异地更新
+			if (GET_SEGNO(fio->sbi, fio->old_blkaddr) != NULL_SEGNO){
+				fio->sbi->block_count[WARM_DATA_FG_GC]++;
+				//获取旧地址的热度和时间信息
+				get_hotness_info(fio->sbi, fio->old_blkaddr, &old_IRR, &old_LWS);
+				allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type, fio, true);
+				//新地址填上旧的热度和时间
+				set_hotness_info(fio->sbi, fio->new_blkaddr, old_IRR, old_LWS);
+				//旧地址hotness和mtime置0
+				set_hotness_info(fio->sbi, fio->old_blkaddr, MAX_IRR, 0);
+			}
+	}else{
+		fio->sbi->block_count[WARM_DATA_LFS]++;
+		new_IRR = get_new_IRR(fio->sbi, fio->old_blkaddr);	//计算新的IRR
+		allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type, fio, true);
+		//新地址填上新的热度
+		set_hotness_info(fio->sbi, fio->new_blkaddr, new_IRR, fio->sbi->block_count[WARM_DATA_LFS]);
+		//旧地址hotness和mtime置0
+		set_hotness_info(fio->sbi, fio->old_blkaddr, MAX_IRR, 0);
+	}
+	writeout dirty page into bdev 
+	err = f2fs_submit_page_write(fio);
+	if (err == -EAGAIN) {
+		fio->old_blkaddr = fio->new_blkaddr;
+		goto reallocate;
+	}
+}
+*/
 
 static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)
 {
 	unsigned int new_IRR = 0;
 	int type = __get_segment_type(fio);
 	int err;
+	unsigned int old_IRR = 0, old_LWS = 0;
 reallocate:
+
+	// 对于warm data, 更新热度信息，并迁移到新的block上
 	if(type == CURSEG_WARM_DATA){
-		fio->sbi->block_count[2]++;
-		//计算新的IRR
-		new_IRR = get_new_IRR(fio->sbi, fio->old_blkaddr);
+		fio->sbi->block_count[WARM_DATA_LFS]++;
+		new_IRR = get_new_IRR(fio->sbi, fio->old_blkaddr);	//计算新的IRR
 		type = get_type_by_hotness(new_IRR, fio->sbi);
 		allocate_data_block_with_hotness(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type);
-		//新地址填上新的热度
-		set_hotness_info(fio->sbi, fio->new_blkaddr, new_IRR, fio->sbi->block_count[2]);
-		//旧地址hotness和mtime置0
+		set_hotness_info(fio->sbi, fio->new_blkaddr, new_IRR, fio->sbi->block_count[WARM_DATA_LFS]);
 		set_hotness_info(fio->sbi, fio->old_blkaddr, MAX_IRR, 0);
-	}else{
+		// 每更新一个block, 就将它加到待聚类的数组中
+		
+		add_to_sample(fio->sbi, new_IRR, fio->sbi->block_count[WARM_DATA_LFS]);
+	}
+	// 对于gc更新的block(gc时调用 set_cold_data)，肯定存在旧地址，那么不更新热度和计数,但是热度还是要迁移
+	else if(is_cold_data(fio->page)){
+		if (GET_SEGNO(fio->sbi, fio->old_blkaddr) != NULL_SEGNO){
+			fio->sbi->block_count[WARM_DATA_FG_GC]++;
+			get_hotness_info(fio->sbi, fio->old_blkaddr, &old_IRR, &old_LWS);
+			type = get_type_by_hotness(old_IRR, fio->sbi);
+			allocate_data_block_with_hotness(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type);
+			set_hotness_info(fio->sbi, fio->new_blkaddr, old_IRR, old_LWS);	
+			set_hotness_info(fio->sbi, fio->old_blkaddr, MAX_IRR, 0);
+		}
+		else{
+			printk(" shao gc error!!");
+		}
+	}
+	// 其他block
+	else{
 		allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
 				&fio->new_blkaddr, sum, type, fio, true);
 	}
-	/* writeout dirty page into bdev */
+
+//	allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
+//				&fio->new_blkaddr, sum, type, fio, true);
+	// writeout dirty page into bdev 
 	err = f2fs_submit_page_write(fio);
 	if (err == -EAGAIN) {
 		fio->old_blkaddr = fio->new_blkaddr;
