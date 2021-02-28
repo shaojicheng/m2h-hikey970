@@ -3,15 +3,18 @@
 #include <math.h>
 #include <time.h>
 
-int K, N, D;  //¾ÛÀàµÄÊıÄ¿£¬Êı¾İÁ¿£¬Êı¾İµÄÎ¬Êı
-K = 4;
-N = 10;
+int K, N, D;  //èšç±»çš„æ•°ç›®ï¼Œæ•°æ®é‡ï¼Œæ•°æ®çš„ç»´æ•°
+K = 10;
+N = 8000;
 D = 1;
+int LEVEL_WIDTH = 1000;//åˆ†çº§åˆ«ï¼Œæ¯ä¸€çº§çš„å®½åº¦
+int COLD_DATA_THRESHOLD = 500000;//è¶…è¿‡è¿™ä¸ªé˜ˆå€¼å°±è§†ä¸ºå†·æ•°æ®
 
-unsigned int* data;  //´æ·ÅÊı¾İ
-int* in_cluster;  //±ê¼ÇÃ¿¸öµãÊôÓÚÄÄ¸ö¾ÛÀà
-unsigned int* cluster_center;  //´æ·ÅÃ¿¸ö¾ÛÀàµÄÖĞĞÄµã
+unsigned int* data;  //å­˜æ”¾æ•°æ®
+int* in_cluster;  //æ ‡è®°æ¯ä¸ªç‚¹å±äºå“ªä¸ªèšç±»
+unsigned int* cluster_center;  //å­˜æ”¾æ¯ä¸ªèšç±»çš„ä¸­å¿ƒç‚¹
 
+static void get_centroid();
 unsigned int** array(int m, int n);
 unsigned int* array1(int n);
 void freearray(unsigned int** p);
@@ -25,19 +28,24 @@ int main()
 {
     int i, j;
     FILE* fp;
-    if ((fopen_s(&fp, "data3.txt", "r")) != 0)    fprintf(stderr, "cannot open data.txt!\n");
+    if ((fopen_s(&fp, "data.txt", "r")) != 0)    fprintf(stderr, "cannot open data.txt!\n");
     //if (fscanf_s(fp, "K=%d\n", k) != 1)        fprintf(stderr, "load error!\n");
-    data = array1(N);  //Éú³ÉÊı¾İÊı×é
+    data = array1(N);  //ç”Ÿæˆæ•°æ®æ•°ç»„
     for (i = 0; i < N; i++)
-        fscanf_s(fp, "%u", &data[i]);  //¶ÁÈ¡Êı¾İµã
+        fscanf_s(fp, "%u", &data[i]);  //è¯»å–æ•°æ®ç‚¹
     printf("Data sets:\n");
     for (i = 0; i < N; i++)
         printf("%u \n", data[i]);
 
     printf("-----------------------------\n");
     printf("\n-----------k=%d----------\n", K);
-    cluster_center = array1(K);  //¾ÛÀàµÄÖĞĞÄµã
-    in_cluster = (int*)malloc(N * sizeof(int));  //Ã¿¸öÊı¾İµãËùÊô¾ÛÀàµÄ±êÖ¾Êı×é
+    cluster_center = array1(K);  //èšç±»çš„ä¸­å¿ƒç‚¹
+    for (i = 0; i < K; i++)
+        cluster_center[i] = 0;
+    get_centroid();
+    for (i = 0; i < K; i++)
+        printf("%u \n", cluster_center[i]);
+    in_cluster = (int*)malloc(N * sizeof(int));  //æ¯ä¸ªæ•°æ®ç‚¹æ‰€å±èšç±»çš„æ ‡å¿—æ•°ç»„
     k_means();
     printf("The new center of cluster is:\n");
     for (i = 0; i < K; i++)
@@ -45,32 +53,77 @@ int main()
 }
 
 
+///ç°åœ¨è®¾k= 10
+static void get_centroid() {
+    /*1ã€éå†ä¸€éï¼Œæ±‚å¾—æœ€å¤§å€¼ï¼Œå¹¶æŒ‰ç…§1ä¸‡ä¸ºå•ä½ï¼ŒæŠŠlevelåˆ‡å‰²å¥½
+     *2ã€å†æ¬¡éå†ï¼Œç»Ÿè®¡æ¯ä¸ªlevelä¸­çš„æ ·æœ¬æ•°
+     *3ã€éå†10æ¬¡ï¼Œæ±‚å‡ºtop 10ï¼Œå…ˆè¾“å‡ºæ¥çœ‹çœ‹
+     */
+     //3000ä¸‡èƒ½å¤Ÿä¿è¯ä¸è¶…
+    int level_cnt[3000] = { 0 };
+
+    int i = 0, level_nr = 0, level_seq = 0, centroid_cnt = 0;
+    unsigned int max = 0;
+    for (i = 0; i < N; i++) {
+        if (data[i] < COLD_DATA_THRESHOLD && data[i] > max)
+            max = data[i];
+    }
+    //æ¯ä¸ªleveléƒ½æ˜¯å‰é—­åå¼€
+    level_nr = max / LEVEL_WIDTH;//QWJè®¡ç®—å‡ºlevelçš„ä¸ªæ•°
+    //printf("max = %u; level_nr = %d\n", max, level_nr);
+    for (i = 0; i <N; i++) {
+        if (data[i] < COLD_DATA_THRESHOLD) {
+            level_seq = data[i] / LEVEL_WIDTH;
+            level_cnt[level_seq]++;//QWJç»Ÿè®¡æ¯ä¸ªlevelæœ‰å¤šå°‘ä¸ªå€¼
+        }
+    }
+
+    while (centroid_cnt < K) {//QWJ è´¨å¿ƒæ•°CENTROID_NR=10
+        int tmp_max = 0, tmp_index = 0;
+        int be_cent = 1;
+        for (i = 0; i < level_nr; i++) {//QWJæ‰¾å‡ºå€¼æœ€å¤šçš„level
+            if (level_cnt[i] > tmp_max) {
+                tmp_max = level_cnt[i];
+                tmp_index = i;
+            }
+        }
+        //é€‰å‡ºäº†ä¸€ä¸ªå¾…å®šè´¨å¿ƒåï¼Œçœ‹ä»–èƒ½ä¸èƒ½ä½œä¸ºè´¨å¿ƒ
+        for (i = 0; i < centroid_cnt; i++) {
+            if (cluster_center[i] / LEVEL_WIDTH == tmp_index + 1 || cluster_center[i] / LEVEL_WIDTH + 1 == tmp_index) {
+                be_cent = 0;
+                break;
+            }
+        }
+        if (tmp_max == 0)
+            break;
+        if (be_cent) {
+            //printf("centroid %d is %u, has %d points in section\n", centroid_cnt, tmp_index * LEVEL_WIDTH, tmp_max);
+            cluster_center[centroid_cnt++] = tmp_index * LEVEL_WIDTH;
+            printf("%d \n", centroid_cnt);
+        }
+        level_cnt[tmp_index] = 0;
+    }
+    K = centroid_cnt;
+}
+
 void  k_means()
 {
     int i, j, count = 0;
     unsigned int temp1, temp2;
 
-
-    srand((unsigned int)(time(NULL)));  //Ëæ»ú³õÊ¼»¯k¸öÖĞĞÄµã
-    for (i = 0; i < K; i++)
-        cluster_center[i] = data[(int)((double)N * rand() / (RAND_MAX + 1.0))];
-    printf("The new center of cluster is:\n");
-    for (i = 0; i < K; i++)
-        printf("%u \n", cluster_center[i]);
-
-    cluster();  //ÓÃËæ»úk¸öÖĞĞÄµã½øĞĞ¾ÛÀà
-    temp1 = getDifference();  //µÚÒ»´ÎÖĞĞÄµãºÍËùÊôÊı¾İµãµÄ¾àÀëÖ®ºÍ
+    cluster();  //ç”¨éšæœºkä¸ªä¸­å¿ƒç‚¹è¿›è¡Œèšç±»
+    temp1 = getDifference();  //ç¬¬ä¸€æ¬¡ä¸­å¿ƒç‚¹å’Œæ‰€å±æ•°æ®ç‚¹çš„è·ç¦»ä¹‹å’Œ
     count++;
     printf("The first difference between data and center is: %u\n\n", temp1);
 
 
     getCenter(in_cluster);
-    cluster();  //ÓÃĞÂµÄk¸öÖĞĞÄµã½øĞĞµÚ¶ş´Î¾ÛÀà
+    cluster();  //ç”¨æ–°çš„kä¸ªä¸­å¿ƒç‚¹è¿›è¡Œç¬¬äºŒæ¬¡èšç±»
     temp2 = getDifference();
     count++;
     printf("The second difference between data and center is: %u\n\n", temp2);
 
-    while (fabs(temp2 - temp1) !=0) {   //±È½ÏÇ°ºóÁ½´Îµü´ú£¬Èô²»ÏàµÈ¼ÌĞøµü´ú
+    while (fabs(temp2 - temp1) !=0) {   //æ¯”è¾ƒå‰åä¸¤æ¬¡è¿­ä»£ï¼Œè‹¥ä¸ç›¸ç­‰ç»§ç»­è¿­ä»£
         temp1 = temp2;
         getCenter(in_cluster);
         cluster();
@@ -79,12 +132,12 @@ void  k_means()
         printf("The %dth difference between data and center is: %u\n\n", count, temp2);
     }
 
-    printf("\nThe total number of cluster is: %d\n", count);  //Í³¼Æµü´ú´ÎÊı
-    //system("pause");  //gcc±àÒëĞèÉ¾³ı
+    printf("\nThe total number of cluster is: %d\n", count);  //ç»Ÿè®¡è¿­ä»£æ¬¡æ•°
+    //system("pause");  //gccç¼–è¯‘éœ€åˆ é™¤
 }
 
 
-//¶¯Ì¬´´½¨Ò»Î¬Êı×é
+//åŠ¨æ€åˆ›å»ºä¸€ç»´æ•°ç»„
 unsigned int* array1(int n)
 {
     unsigned int* p;
@@ -92,7 +145,7 @@ unsigned int* array1(int n)
     return p;
 }
 
-//¶¯Ì¬´´½¨¶şÎ¬Êı×é
+//åŠ¨æ€åˆ›å»ºäºŒç»´æ•°ç»„
 unsigned int** array(int m, int n)
 {
     int i;
@@ -104,7 +157,7 @@ unsigned int** array(int m, int n)
 }
 
 
-//ÊÍ·Å¶şÎ¬Êı×éËùÕ¼ÓÃµÄÄÚ´æ
+//é‡Šæ”¾äºŒç»´æ•°ç»„æ‰€å ç”¨çš„å†…å­˜
 void freearray(unsigned int** p)
 {
     free(*p);
@@ -112,7 +165,7 @@ void freearray(unsigned int** p)
 }
 
 
-//¼ÆËãÅ·¼¸ÀïµÃ¾àÀë
+//è®¡ç®—æ¬§å‡ é‡Œå¾—è·ç¦»
 unsigned int getDistance(unsigned int a, unsigned int b)
 {
     unsigned int sum = 0;
@@ -126,13 +179,13 @@ unsigned int getDistance(unsigned int a, unsigned int b)
     return sqrt(sum);
 }
 
-//°ÑN¸öÊı¾İµã¾ÛÀà£¬±ê³öÃ¿¸öµãÊôÓÚÄÄ¸ö¾ÛÀà
+//æŠŠNä¸ªæ•°æ®ç‚¹èšç±»ï¼Œæ ‡å‡ºæ¯ä¸ªç‚¹å±äºå“ªä¸ªèšç±»
 void cluster()
 {
     int i, j;
     unsigned int min;
-    unsigned int** distance = array(N, K);  //´æ·ÅÃ¿¸öÊı¾İµãµ½Ã¿¸öÖĞĞÄµãµÄ¾àÀë
-    //float distance[N][K];  //Ò²¿ÉÊ¹ÓÃC99±ä³¤Êı×é
+    unsigned int** distance = array(N, K);  //å­˜æ”¾æ¯ä¸ªæ•°æ®ç‚¹åˆ°æ¯ä¸ªä¸­å¿ƒç‚¹çš„è·ç¦»
+    //float distance[N][K];  //ä¹Ÿå¯ä½¿ç”¨C99å˜é•¿æ•°ç»„
     for (i = 0; i < N; ++i) {
         unsigned int zero;
         zero = 0;
@@ -151,7 +204,7 @@ void cluster()
     free(distance);
 }
 
-//¼ÆËãËùÓĞ¾ÛÀàµÄÖĞĞÄµãÓëÆäÊı¾İµãµÄ¾àÀëÖ®ºÍ
+//è®¡ç®—æ‰€æœ‰èšç±»çš„ä¸­å¿ƒç‚¹ä¸å…¶æ•°æ®ç‚¹çš„è·ç¦»ä¹‹å’Œ
 unsigned int getDifference()
 {
     int i, j;
@@ -165,19 +218,19 @@ unsigned int getDifference()
     return sum;
 }
 
-//¼ÆËãÃ¿¸ö¾ÛÀàµÄÖĞĞÄµã
+//è®¡ç®—æ¯ä¸ªèšç±»çš„ä¸­å¿ƒç‚¹
 void getCenter(int in_cluster[])
 {
-    unsigned int* sum = array1(K);  //´æ·ÅÃ¿¸ö¾ÛÀàÖĞĞÄµã
-    //float sum[K][D];  //Ò²¿ÉÊ¹ÓÃC99±ä³¤Êı×é
+    unsigned int* sum = array1(K);  //å­˜æ”¾æ¯ä¸ªèšç±»ä¸­å¿ƒç‚¹
+    //float sum[K][D];  //ä¹Ÿå¯ä½¿ç”¨C99å˜é•¿æ•°ç»„
     int i, j, q, count;
     for (i = 0; i < K; i++)
         sum[i] = 0;
     for (i = 0; i < K; i++) {
-        count = 0;  //Í³¼ÆÊôÓÚÄ³¸ö¾ÛÀàÄÚµÄËùÓĞÊı¾İµã
+        count = 0;  //ç»Ÿè®¡å±äºæŸä¸ªèšç±»å†…çš„æ‰€æœ‰æ•°æ®ç‚¹
         for (j = 0; j < N; j++) {
             if (i == in_cluster[j]) {
-                sum[i] += data[j];  //¼ÆËãËùÊô¾ÛÀàµÄËùÓĞÊı¾İµãµÄÏàÓ¦Î¬ÊıÖ®ºÍ
+                sum[i] += data[j];  //è®¡ç®—æ‰€å±èšç±»çš„æ‰€æœ‰æ•°æ®ç‚¹çš„ç›¸åº”ç»´æ•°ä¹‹å’Œ
                 count++;
             }
         }
