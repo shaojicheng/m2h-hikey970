@@ -1205,7 +1205,163 @@ void build_gc_manager(struct f2fs_sb_info *sbi)
 				GET_SEGNO(sbi, FDEV(0).end_blk) + 1;
 }
 
+//add qwj
+///现在设k= 10
+static void get_centroid() {
+    /*1、遍历一遍，求得最大值，并按照1万为单位，把level切割好
+     *2、再次遍历，统计每个level中的样本数
+     *3、遍历10次，求出top 10，先输出来看看
+     */
+     //3000万能够保证不超
+    int level_cnt[3000] = { 0 };
 
+    int i = 0, level_nr = 0, level_seq = 0, centroid_cnt = 0;
+    unsigned int max = 0;
+    for (i = 0; i < sbi->SAMPLE_SIZE; i++) {
+        if (sbi->sample_irr_array[i] < sbi->COLD_DATA_THRESHOLD && sbi->sample_irr_array[i] > max)
+            max = sbi->sample_irr_array[i];
+    }
+    //每个level都是前闭后开
+    level_nr = max / sbi->LEVEL_WIDTH;//QWJ计算出level的个数
+    //printf("max = %u; level_nr = %d\n", max, level_nr);
+    for (i = 0; i < sbi->SAMPLE_SIZE; i++) {
+        if (sbi->sample_irr_array[i] < sbi->COLD_DATA_THRESHOLD) {
+            level_seq = sbi->sample_irr_array[i] / sbi->LEVEL_WIDTH;
+            level_cnt[level_seq]++;//QWJ统计每个level有多少个值
+        }
+    }
+
+    while (centroid_cnt < sbi->CENTROID_NR) {//QWJ 质心数CENTROID_NR=10
+        int tmp_max = 0, tmp_index = 0;
+        int be_cent = 1;
+        for (i = 0; i < level_nr; i++) {//QWJ找出值最多的level
+            if (level_cnt[i] > tmp_max) {
+                tmp_max = level_cnt[i];
+                tmp_index = i;
+            }
+        }
+        //选出了一个待定质心后，看他能不能作为质心
+        for (i = 0; i < centroid_cnt; i++) {
+            if (centroid[i] / sbi->LEVEL_WIDTH == tmp_index + 1 || centroid[i] / sbi->LEVEL_WIDTH + 1 == tmp_index) {
+                be_cent = 0;
+                break;
+            }
+        }
+        if (tmp_max == 0)
+            break;
+        if (be_cent) {
+            //printf("centroid %d is %u, has %d points in section\n", centroid_cnt, tmp_index * sbi->LEVEL_WIDTH, tmp_max);
+            centroid[centroid_cnt++] = tmp_index * sbi->LEVEL_WIDTH;
+            printf("%d \n", centroid_cnt);
+        }
+        level_cnt[tmp_index] = 0;
+    }
+    sbi->CENTROID_NR = centroid_cnt;
+	sbi->points=sbi->CENTROID_NR;
+}
+
+
+//add qwj
+//计算欧几里得距离
+static unsigned int getDistance(unsigned int a, unsigned int b)
+{
+    return a > b ? a - b : b - a;
+}
+
+//add qwj
+//计算所有聚类的中心点与其数据点的距离之和
+unsigned int getDifference()
+{
+    int i, j;
+    unsigned int sum = 0;
+    for (i = 0; i < sbi->CENTROID_NR; ++i) {
+        for (j = 0; j < sbi->SAMPLE_SIZE; ++j) {
+            if (i == in_cluster[j])
+                sum += getDistance(sbi->sample_irr_array[j], centroid[i]);
+        }
+    }
+    return sum;
+}
+//add qwj
+//计算每个聚类的中心点
+void getCenter(int in_cluster[])
+{
+    unsigned int sum[sbi->CENTROID_NR];  //存放每个聚类中心点
+    int i, j, q, count;
+    for (i = 0; i < sbi->CENTROID_NR; i++)
+        sum[i] = 0;
+    for (i = 0; i < sbi->CENTROID_NR; i++) {
+        count = 0;  //统计属于某个聚类内的所有数据点
+        for (j = 0; j < sbi->SAMPLE_SIZE; j++) {
+            if (i == in_cluster[j]) {
+                sum[i] += sbi->sample_irr_array[j];  //计算所属聚类的所有数据点的相应维数之和
+                count++;
+            }
+        }
+        if (count == 0) {
+            srand((unsigned int)(time(NULL)));
+            centroid[i] = sbi->sample_irr_array[(int)((double)sbi->SAMPLE_SIZE * rand() / (RAND_MAX + 1.0))];
+        }
+        else {
+            centroid[i] = sum[i] / count;
+        }
+    }
+    //printf("The new center of cluster is:\n");
+    //for (i = 0; i < sbi->CENTROID_NR; i++)
+    //    printf("%u \n", centroid[i]);
+}
+//add qwj
+//把N个数据点聚类，标出每个点属于哪个聚类
+void cluster()
+{
+    int i, j;
+    unsigned int min;
+    unsigned int distance[sbi->SAMPLE_SIZE, sbi->CENTROID_NR];   //存放每个数据点到每个中心点的距离
+    //float distance[N][K];  //也可使用C99变长数组
+    for (i = 0; i < sbi->SAMPLE_SIZE; ++i) {
+        unsigned int zero;
+        zero = 0;
+        min = zero - 1;
+        for (j = 0; j < sbi->CENTROID_NR; ++j) {
+            distance[i][j] = getDistance(sbi->sample_irr_array[i], centroid[j]);
+            if (distance[i][j] < min) {
+                min = distance[i][j];
+                in_cluster[i] = j;
+            }
+        }
+        //printf("data[%d] in cluster-%d\n", i, in_cluster[i] + 1);
+    }
+    //printf("-----------------------------\n");
+}
+//add qwj
+void  k_means()
+{
+    int i, j, count = 0;
+    unsigned int temp1, temp2;
+
+    cluster();  //用k个中心点进行聚类
+    temp1 = getDifference();  //第一次中心点和所属数据点的距离之和
+    count++;
+    //printf("The first difference between data and center is: %u\n\n", temp1);
+
+
+    getCenter(in_cluster);
+    cluster();  //用新的k个中心点进行第二次聚类
+    temp2 = getDifference();
+    count++;
+    //printf("The second difference between data and center is: %u\n\n", temp2);
+
+    while (fabs(temp2 - temp1) != 0) {   //比较前后两次迭代，若不相等继续迭代
+        temp1 = temp2;
+        getCenter(in_cluster);
+        cluster();
+        temp2 = getDifference();
+        count++;
+        //printf("The %dth difference between data and center is: %u\n\n", count, temp2);
+    }
+
+    //printf("\nThe total number of cluster is: %d\n", count);  //统计迭代次数
+}
 // add shao
 /*
  * 聚类的函数，这里不实现聚类算法，通过sysfs的方式把数据暴露出去，在NPU上实现聚类
@@ -1217,7 +1373,10 @@ static int kMeans_func(void *data){
 	unsigned int tmp = 0, i = 0, j = 0;
 	while (!kthread_should_stop()) {
 		
-		printk(KERN_INFO "shao Kmeans result: %s", sbi->str_centroid);
+		//-------CPU运行聚类-----
+		get_centroid();
+		k_means();
+		//printk(KERN_INFO "shao Kmeans result: %s", sbi->str_centroid);
 		/*
 		// 获取第一个数，也就是质心的数量
 		do{
@@ -1254,7 +1413,8 @@ void start_kMeans_thread(struct f2fs_sb_info *sbi){
 	for(i = 0; i < sbi->SAMPLE_SIZE; ++i){
 		*(sbi->sample_irr_array + i) = 0;
 	}
-
+    int* in_cluster;  //标记样本中每个点属于哪个聚类
+    in_cluster = vzalloc(sbi->SAMPLE_SIZE * sizeof(int));  //每个数据点所属聚类的标志数组
 	// 聚类结果
 	sbi->CENTROID_NR = 10;
 	sbi->centroid = vzalloc(sizeof(unsigned int) * sbi->CENTROID_NR + 1);
@@ -1263,7 +1423,7 @@ void start_kMeans_thread(struct f2fs_sb_info *sbi){
 
 	memcpy(sbi->str_centroid, "10 0 0 0 0 0 0 0 0 0 0", 64);
 
-
+	sbi->LEVEL_WIDTH = 10000;
 	sbi->COLD_DATA_THRESHOLD = 500000;
 	sbi->sample_task = kthread_run(kMeans_func, sbi, "f2fs_Kmeans");
 	if (IS_ERR(sbi->sample_task)) {
