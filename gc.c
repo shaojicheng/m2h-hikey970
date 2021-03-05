@@ -1253,13 +1253,13 @@ static void get_centroid(struct f2fs_sb_info* sbi) {
         if (be_cent) {
             //printf("centroid %d is %u, has %d points in section\n", centroid_cnt, tmp_index * sbi->LEVEL_WIDTH, tmp_max);
             sbi->centroid[centroid_cnt++] = tmp_index * sbi->LEVEL_WIDTH;
-            printf("%d \n", centroid_cnt);
+            //printf("%d \n", centroid_cnt);
         }
         level_cnt[tmp_index] = 0;
     }
     sbi->CENTROID_NR = centroid_cnt;
     sbi->points = sbi->CENTROID_NR;
-    vzfree(level_cnt);
+    vfree(level_cnt);
 }
 
 
@@ -1301,18 +1301,17 @@ void getCenter(struct f2fs_sb_info* sbi, int* in_cluster)
                 count++;
             }
         }
-        if (count == 0) {
-            srand((unsigned int)(time(NULL)));
-            sbi->centroid[i] = sbi->sample_irr_array[(int)((double)sbi->SAMPLE_SIZE * rand() / (RAND_MAX + 1.0))];
-        }
-        else {
-            sbi->centroid[i] = sum[i] / count;
-        }
+//        if (count == 0) {
+//            srand((unsigned int)(time(NULL)));
+//            sbi->centroid[i] = sbi->sample_irr_array[(int)((double)sbi->SAMPLE_SIZE * rand() / (RAND_MAX + 1.0))];
+//        }
+        sbi->centroid[i] = sum[i] / count;
+
     }
     //printf("The new center of cluster is:\n");
     //for (i = 0; i < sbi->CENTROID_NR; i++)
     //    printf("%u \n", centroid[i]);
-    vzfree(sum);
+    vfree(sum);
 }
 //add qwj
 //把N个数据点聚类，标出每个点属于哪个聚类
@@ -1335,8 +1334,8 @@ void cluster(struct f2fs_sb_info* sbi,unsigned int** distance, int* in_cluster)
     }
     //printf("-----------------------------\n");
     for (i = 1; i < sbi->SAMPLE_SIZE; i++)
-        vzfree(distance[i]);
-    vzfree(distance);
+        vfree(distance[i]);
+    vfree(distance);
 }
 //add qwj
 void  k_means(struct f2fs_sb_info* sbi,int* in_cluster)
@@ -1362,7 +1361,7 @@ void  k_means(struct f2fs_sb_info* sbi,int* in_cluster)
     count++;
     //printf("The second difference between data and center is: %u\n\n", temp2);
 
-    while (fabs(temp2 - temp1) != 0) {   //比较前后两次迭代，若不相等继续迭代
+    while (temp2 - temp1 != 0) {   //比较前后两次迭代，若不相等继续迭代
         temp1 = temp2;
         getCenter(sbi, in_cluster);
         cluster(sbi, distance, in_cluster);
@@ -1389,7 +1388,7 @@ static int kMeans_func(void* data) {
         in_cluster = vzalloc(sbi->SAMPLE_SIZE * sizeof(int));  //每个数据点所属聚类的标志数组
         get_centroid(sbi);
         k_means(sbi, in_cluster);
-		vzfree(in_cluster);
+		vfree(in_cluster);
         //printk(KERN_INFO "shao Kmeans result: %s", sbi->str_centroid);
         /*
         // 获取第一个数，也就是质心的数量
