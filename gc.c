@@ -1309,18 +1309,18 @@ static void k_means(struct f2fs_sb_info *sbi){
 
         ///遍历分类，同时计算每类平均值和距离之和
         ///重新计算calcu
-        for(i = 0; i < sbi->SAMPLE_SIZE; i++){
+        for(i = 0; i < sbi->SAMPLE_SIZE; i++){//遍历所有样本值
             if(sbi->sample_irr_array[i] < sbi->COLD_DATA_THRESHOLD){
                 league_sample++;
                 min_dis_of_centroids = (unsigned int)(~0) -1;
-                for(j = 0; j < sbi->points; j++){
+                for(j = 0; j < sbi->points; j++){//找出此样本值的最短距离质心
                     if(getDistance(sbi->sample_irr_array[i], sbi->centroid[j])  < min_dis_of_centroids){
                         min_dis_of_centroids = getDistance(sbi->sample_irr_array[i], sbi->centroid[j]);
                         index_of_min_dis = j;
                     }
                 }
 
-                if(min_dis_of_centroids < 30000){
+                if(min_dis_of_centroids < 30000){//距离某个质心（最近）的最小距离小于3W才参与质点的更新
 					///point分到了当前类中，需要计算当前类的value和，点数加一，方便计算平均值
 	                new_cent[index_of_min_dis].sum_of_cluster += sbi->sample_irr_array[i];
 	                new_cent[index_of_min_dis].point_nr++;
@@ -1371,19 +1371,19 @@ static int kMeans_func(void* data) {
     while (!kthread_should_stop()) {
 
         //-------CPU运行聚类-----
-        int* in_cluster;  //标记样本中每个点属于哪个聚类
+ 
 		
-        in_cluster = vzalloc(sbi->SAMPLE_SIZE * sizeof(int));  //每个数据点所属聚类的标志数组
+
         get_centroid(sbi);
 		printk(KERN_INFO "shao abcdefg");
-        //k_means(sbi, in_cluster);
+        
 		k_means(sbi);
 		for(i=0;i<sbi->points;i++)
 		{
 			printk(KERN_INFO "qqq%d ",i);
 			printk(KERN_INFO "centroid[%d] = %u ",i,sbi->centroid[i]);
 		}
-		vfree(in_cluster);
+
         //printk(KERN_INFO "shao Kmeans result: %s", sbi->str_centroid);
         /*
         // 获取第一个数，也就是质心的数量
