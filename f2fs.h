@@ -1217,7 +1217,7 @@ struct f2fs_sb_info {
 	unsigned int *centroid;
 	// 从sysfs获取的质心，用一个字符串表示，""质心数	质心0	质心1 ..."
 	char *str_centroid;
-	//分级别，每一级的宽度
+	//分级别，每一级的宽度 //add qwj
 	int LEVEL_WIDTH;
 	//超过这个阈值就视为冷数据
 	unsigned int COLD_DATA_THRESHOLD;

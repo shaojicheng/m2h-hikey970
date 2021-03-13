@@ -2682,7 +2682,7 @@ void allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 }
 
 
-//add shao
+//add shao  跟涂不一样
 void allocate_data_block_with_hotness(struct f2fs_sb_info *sbi, struct page *page,
 		block_t old_blkaddr, block_t *new_blkaddr,
 		struct f2fs_summary *sum, int type)
@@ -2734,33 +2734,33 @@ static void update_device_state(struct f2fs_io_info *fio)
 //add shao start
 void get_hotness_info(struct f2fs_sb_info *sbi, block_t old_blkaddr, unsigned int *old_IRR, unsigned int *old_LWS){
 	unsigned int old_segno = 0, old_offset = 0;
-	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO){
-		old_segno = GET_SEGNO(sbi, old_blkaddr);
-		old_offset = GET_BLKOFF_FROM_SEG0(sbi, old_blkaddr);
-		*old_IRR = sbi->blk_cnt_en[old_segno * sbi->blocks_per_seg + old_offset].IRR;
-		*old_LWS = sbi->blk_cnt_en[old_segno * sbi->blocks_per_seg + old_offset].LWS;
+	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO){//重点看看NULL_SEGNO的意思，要不要return
+		old_segno = GET_SEGNO(sbi, old_blkaddr);//获得旧地址的segment号
+		old_offset = GET_BLKOFF_FROM_SEG0(sbi, old_blkaddr);//获得旧地址的段内偏移
+		*old_IRR = sbi->blk_cnt_en[old_segno * sbi->blocks_per_seg + old_offset].IRR;//获得老的热度
+		*old_LWS = sbi->blk_cnt_en[old_segno * sbi->blocks_per_seg + old_offset].LWS;//获得老的时间信息
 	}
 }
 
 void set_hotness_info(struct f2fs_sb_info *sbi, block_t blkaddr, unsigned int IRR_val, unsigned int LWS_val){
 	unsigned int new_segno = 0, new_offset = 0;
 	if (GET_SEGNO(sbi, blkaddr) != NULL_SEGNO){
-		new_segno = GET_SEGNO(sbi, blkaddr);
-		new_offset = GET_BLKOFF_FROM_SEG0(sbi, blkaddr);
-		sbi->blk_cnt_en[new_segno * sbi->blocks_per_seg + new_offset].IRR = IRR_val;
-		sbi->blk_cnt_en[new_segno * sbi->blocks_per_seg + new_offset].LWS = LWS_val;
+		new_segno = GET_SEGNO(sbi, blkaddr);//获得blkaddr段号
+		new_offset = GET_BLKOFF_FROM_SEG0(sbi, blkaddr);//获得blkaddr段内偏移
+		sbi->blk_cnt_en[new_segno * sbi->blocks_per_seg + new_offset].IRR = IRR_val;//给blkaddr赋予新的热度
+		sbi->blk_cnt_en[new_segno * sbi->blocks_per_seg + new_offset].LWS = LWS_val;//给blkaddr赋予新的时间信息
 	}
 }
 
 unsigned int get_new_IRR(struct f2fs_sb_info *sbi, block_t old_blkaddr){
-	unsigned int old_IRR = 0, new_IRR = MAX_IRR, old_LWS = 0;;
+	unsigned int old_IRR = 0, new_IRR = MAX_IRR, old_LWS = 0;
 	//不是第一次写，旧block存在,则通过公式计算得到新的热度
 	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO){
 		//获取旧地址的热度和时间信息
 		get_hotness_info(sbi, old_blkaddr, &old_IRR, &old_LWS);
 		new_IRR = sbi->block_count[WARM_DATA_LFS] - old_LWS;
 	}
-	return new_IRR;
+	return new_IRR;//否则返回最大值（冷数据）
 }
 
 void add_to_sample(struct f2fs_sb_info *sbi, unsigned int IRR_val, unsigned int LWS_val){	
@@ -2775,13 +2775,13 @@ static unsigned int get_distance(unsigned int a, unsigned int b){
     return a > b? a - b: b - a;
 }
 
-static int get_type_by_hotness(unsigned int hotness, struct f2fs_sb_info *sbi){
+static int get_type_by_hotness(unsigned int hotness, struct f2fs_sb_info *sbi){//使用聚类结果
 	int i = 0, res = 0;
 	unsigned int min_dis = (unsigned int)(~0) -1;
 	//大于COLD_DATA_THRESHOLD的直接写成冷数据，其他按照距离来
 	if(hotness > sbi->COLD_DATA_THRESHOLD)	
-		return sbi->points;
-	for(i = 0; i < sbi->points; i++){
+		return sbi->CENTROID_NR;//修改QWJ
+	for(i = 0; i < sbi->points; i++){//根据热度进行分类，如果小于某个范围内，就分到某个类中
 		if(get_distance(*(sbi->centroid + i), hotness) < min_dis){
 			min_dis = get_distance(*(sbi->centroid + i), hotness);
 			res = i;
@@ -2831,7 +2831,7 @@ reallocate:
 }
 */
 
-static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)
+static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)//使用聚类结果
 {
 	unsigned int new_IRR = 0;
 	int type = __get_segment_type(fio);
@@ -2841,15 +2841,14 @@ reallocate:
 
 	// 对于warm data, 更新热度信息，并迁移到新的block上
 	if(type == CURSEG_WARM_DATA){
-		fio->sbi->block_count[WARM_DATA_LFS]++;
-		new_IRR = get_new_IRR(fio->sbi, fio->old_blkaddr);	//计算新的IRR
-		type = get_type_by_hotness(new_IRR, fio->sbi);
-		allocate_data_block_with_hotness(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type);
-		set_hotness_info(fio->sbi, fio->new_blkaddr, new_IRR, fio->sbi->block_count[WARM_DATA_LFS]);
-		set_hotness_info(fio->sbi, fio->old_blkaddr, MAX_IRR, 0);
-		// 每更新一个block, 就将它加到待聚类的数组中
+		fio->sbi->block_count[WARM_DATA_LFS]++;//温数据时间序列
+		new_IRR = get_new_IRR(fio->sbi, fio->old_blkaddr);	//计算新的IRR 
+		type = get_type_by_hotness(new_IRR, fio->sbi);//根据新算出来的热度IRR获得归属类型type 
+		allocate_data_block_with_hotness(fio->sbi, fio->page, fio->old_blkaddr, &fio->new_blkaddr, sum, type);//根据type分配新的存储地址
+		set_hotness_info(fio->sbi, fio->new_blkaddr, new_IRR, fio->sbi->block_count[WARM_DATA_LFS]);//设置新地址中的热度和时间信息
+		set_hotness_info(fio->sbi, fio->old_blkaddr, MAX_IRR, 0);//设置旧地址中的热度和时间信息
 		
-		add_to_sample(fio->sbi, new_IRR, fio->sbi->block_count[WARM_DATA_LFS]);
+		add_to_sample(fio->sbi, new_IRR, fio->sbi->block_count[WARM_DATA_LFS]);// 每更新一个block, 就将它加到待聚类的数组中
 	}
 	// 对于gc更新的block(gc时调用 set_cold_data)，肯定存在旧地址，那么不更新热度和计数,但是热度还是要迁移
 	else if(is_cold_data(fio->page)){

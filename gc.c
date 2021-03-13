@@ -1214,36 +1214,42 @@ static void get_centroid(struct f2fs_sb_info* sbi) {
      */
      //3000万能够保证不超
     int* level_cnt;
-    level_cnt = vzalloc(3000 * sizeof(int));
+	int max_level = 5000;
+    level_cnt = vzalloc(max_level * sizeof(int));
 
-        int i = 0, level_nr = 0, level_seq = 0, centroid_cnt = 0;
+    int i = 0, level_nr = 0, level_seq = 0, centroid_cnt = 0;
     unsigned int max = 0;
     for (i = 0; i < sbi->SAMPLE_SIZE; i++) {
-        if (sbi->sample_irr_array[i] < sbi->COLD_DATA_THRESHOLD && sbi->sample_irr_array[i] > max)
+		//printk(KERN_INFO "sample_irr_array = %u ",sbi->sample_irr_array[i]);
+        if (sbi->sample_irr_array[i] > max && sbi->sample_irr_array[i] < sbi->COLD_DATA_THRESHOLD)
             max = sbi->sample_irr_array[i];
     }
+	printk(KERN_INFO "max = %u",max);
     //每个level都是前闭后开
     level_nr = max / sbi->LEVEL_WIDTH;//QWJ计算出level的个数
+	printk(KERN_INFO "level_nr = %u",level_nr);
     //printf("max = %u; level_nr = %d\n", max, level_nr);
     for (i = 0; i < sbi->SAMPLE_SIZE; i++) {
-        if (sbi->sample_irr_array[i] < sbi->COLD_DATA_THRESHOLD) {
-            level_seq = sbi->sample_irr_array[i] / sbi->LEVEL_WIDTH;
-            level_cnt[level_seq]++;//QWJ统计每个level有多少个值
+        if (sbi->sample_irr_array[i] < max) {//取不到最大热度值
+			printk(KERN_INFO "sample_irr_array %u",sbi->sample_irr_array[i]);
+            level_seq = (int)(sbi->sample_irr_array[i] / sbi->LEVEL_WIDTH);
+			if(level_seq<max_level)
+            	level_cnt[level_seq]++;//QWJ统计每个level有多少个值
         }
     }
-
     while (centroid_cnt < sbi->CENTROID_NR) {//QWJ 质心数CENTROID_NR=10
         int tmp_max = 0, tmp_index = 0;
         int be_cent = 1;
-        for (i = 0; i < level_nr; i++) {//QWJ找出值最多的level
+        for (i = 0; i <= level_nr; i++) {//QWJ找出值最多的level
             if (level_cnt[i] > tmp_max) {
                 tmp_max = level_cnt[i];
                 tmp_index = i;
             }
         }
+		printk(KERN_INFO "level_cnt = %d",level_cnt[tmp_index]);
         //选出了一个待定质心后，看他能不能作为质心
         for (i = 0; i < centroid_cnt; i++) {
-            if (sbi->centroid[i] / sbi->LEVEL_WIDTH == tmp_index + 1 || sbi->centroid[i] / sbi->LEVEL_WIDTH + 1 == tmp_index) {
+            if ((int)(sbi->centroid[i] / sbi->LEVEL_WIDTH) == tmp_index + 1 || (int)(sbi->centroid[i] / sbi->LEVEL_WIDTH + 1) == tmp_index) {
                 be_cent = 0;
                 break;
             }
@@ -1252,13 +1258,14 @@ static void get_centroid(struct f2fs_sb_info* sbi) {
             break;
         if (be_cent) {
             //printf("centroid %d is %u, has %d points in section\n", centroid_cnt, tmp_index * sbi->LEVEL_WIDTH, tmp_max);
-            sbi->centroid[centroid_cnt++] = tmp_index * sbi->LEVEL_WIDTH;
+            sbi->centroid[centroid_cnt++] = (unsigned int)tmp_index * (unsigned int)sbi->LEVEL_WIDTH;
+			printk(KERN_INFO "qwj1 %u",sbi->centroid[centroid_cnt-1]);
             //printf("%d \n", centroid_cnt);
         }
         level_cnt[tmp_index] = 0;
     }
-    sbi->CENTROID_NR = centroid_cnt;
-    sbi->points = sbi->CENTROID_NR;
+    sbi->points = centroid_cnt;
+	printk(KERN_INFO "qwj2 %d ",sbi->points);
     vfree(level_cnt);
 }
 
@@ -1270,108 +1277,88 @@ static unsigned int getDistance(unsigned int a, unsigned int b)
     return a > b ? a - b : b - a;
 }
 
+
 //add qwj
-//计算所有聚类的中心点与其数据点的距离之和
-unsigned int getDifference(struct f2fs_sb_info* sbi, int* in_cluster)
-{
-    int i, j;
-    unsigned int sum = 0;
-    for (i = 0; i < sbi->CENTROID_NR; ++i) {
-        for (j = 0; j < sbi->SAMPLE_SIZE; ++j) {
-            if (i == in_cluster[j])
-                sum += getDistance(sbi->sample_irr_array[j], sbi->centroid[i]);
+static void k_means(struct f2fs_sb_info *sbi){
+    ///有了选好的初始质心之后进行一下几步
+    ///1、遍历一遍样本，把样本分类到各个质心，分样本时，同时计算一下每个cluster的样本的平均值，作为下一次聚类的质心，
+    ///同时累加一下每个样本到其质心的距离
+    ///2、对比这次算出来的距离和上次的距离的差是否在阈值内；是就停止迭代，质心就是最后的结果；否则，继续循环
+	struct calcu_centroid
+	{
+		unsigned long long sum_of_cluster;
+		unsigned long long point_nr;
+	};
+	
+    struct calcu_centroid new_cent[sbi->CENTROID_NR];
+    unsigned int min_dis_of_centroids = (unsigned int)(~0) -1;
+    unsigned long long last_dis_sum =  (unsigned long long)(~0) -1;
+    unsigned long long cur_dis_sum = (unsigned long long)(~0) -1;
+    int i = 0, j = 0, index_of_min_dis = 0, cluster_time = 0, league_sample = 0;
+
+    do{
+        league_sample = 0;
+        cluster_time++;
+        //每次计算新的质心前先初始化一下
+        for(j = 0; j < sbi->CENTROID_NR; j++){
+            new_cent[j].sum_of_cluster = 0;
+            new_cent[j].point_nr = 0;
         }
-    }
-    return sum;
-}
-//add qwj
-//计算每个聚类的中心点
-void getCenter(struct f2fs_sb_info* sbi, int* in_cluster)
-{
-    unsigned int* sum;
-    sum = vzalloc(sbi->CENTROID_NR * sizeof(unsigned int));  //存放每个聚类中心点
-    int i, j, q, count;
-    for (i = 0; i < sbi->CENTROID_NR; i++)
-        sum[i] = 0;
-    for (i = 0; i < sbi->CENTROID_NR; i++) {
-        count = 0;  //统计属于某个聚类内的所有数据点
-        for (j = 0; j < sbi->SAMPLE_SIZE; j++) {
-            if (i == in_cluster[j]) {
-                sum[i] += sbi->sample_irr_array[j];  //计算所属聚类的所有数据点的相应维数之和
-                count++;
+        last_dis_sum = cur_dis_sum;
+        cur_dis_sum = 0;
+
+        ///遍历分类，同时计算每类平均值和距离之和
+        ///重新计算calcu
+        for(i = 0; i < sbi->SAMPLE_SIZE; i++){
+            if(sbi->sample_irr_array[i] < sbi->COLD_DATA_THRESHOLD){
+                league_sample++;
+                min_dis_of_centroids = (unsigned int)(~0) -1;
+                for(j = 0; j < sbi->points; j++){
+                    if(getDistance(sbi->sample_irr_array[i], sbi->centroid[j])  < min_dis_of_centroids){
+                        min_dis_of_centroids = getDistance(sbi->sample_irr_array[i], sbi->centroid[j]);
+                        index_of_min_dis = j;
+                    }
+                }
+
+                if(min_dis_of_centroids < 30000){
+					///point分到了当前类中，需要计算当前类的value和，点数加一，方便计算平均值
+	                new_cent[index_of_min_dis].sum_of_cluster += sbi->sample_irr_array[i];
+	                new_cent[index_of_min_dis].point_nr++;
+	                ///一个point分好之后，类加上它到自己质心的距离和
+	                cur_dis_sum += min_dis_of_centroids;
+                }
             }
         }
-//        if (count == 0) {
-//            srand((unsigned int)(time(NULL)));
-//            sbi->centroid[i] = sbi->sample_irr_array[(int)((double)sbi->SAMPLE_SIZE * rand() / (RAND_MAX + 1.0))];
-//        }
-        sbi->centroid[i] = sum[i] / count;
-
-    }
-    //printf("The new center of cluster is:\n");
-    //for (i = 0; i < sbi->CENTROID_NR; i++)
-    //    printf("%u \n", centroid[i]);
-    vfree(sum);
-}
-//add qwj
-//把N个数据点聚类，标出每个点属于哪个聚类
-void cluster(struct f2fs_sb_info* sbi,unsigned int** distance, int* in_cluster)
-{
-    int i, j;
-    unsigned int min;
-    for (i = 0; i < sbi->SAMPLE_SIZE; ++i) {
-        unsigned int zero;
-        zero = 0;
-        min = zero - 1;
-        for (j = 0; j < sbi->CENTROID_NR; ++j) {
-            distance[i][j] = getDistance(sbi->sample_irr_array[i], sbi->centroid[j]);
-            if (distance[i][j] < min) {
-                min = distance[i][j];
-                in_cluster[i] = j;
-            }
+        ///这次聚完了，重新算出当前的质心，给下一次聚类用
+        //printf("it is %d time to cluster, league_sample = %d!\n", cluster_time, league_sample);
+        for(j = 0; j < sbi->points; j++){
+            sbi->centroid[j] = new_cent[j].sum_of_cluster == 0? 0: new_cent[j].sum_of_cluster / new_cent[j].point_nr;
+            //printf("cluster %d: value = %u, point_nr = %d\n", j, centroid[j], new_cent[j].point_nr);
         }
-        //printf("data[%d] in cluster-%d\n", i, in_cluster[i] + 1);
-    }
-    //printf("-----------------------------\n");
-    for (i = 1; i < sbi->SAMPLE_SIZE; i++)
-        vfree(distance[i]);
-    vfree(distance);
+
+    }while(cur_dis_sum != last_dis_sum);
+	//1、检查质心中是否有小于4万的，没有的话加以一个2万的质心
+	/*int points = sbi->CENTROID_NR, res = 0;
+	bool need_add = true;
+	for(i = 0; i < sbi->CENTROID_NR; i++){
+		if(*(sbi->centroid + i) < 40000){
+			need_add = false;
+			break;
+		}
+	}
+	if(need_add){
+		*(sbi->centroid + sbi->CENTROID_NR) = 20000;
+		points = sbi->CENTROID_NR + 1;
+	}
+	sbi->points = points;
+
+	printk(KERN_INFO "it is %d time to get new centriod\n", sample_start / sample_size + 1);
+	for(i = 0; i < sbi->points; i++){
+		printk(KERN_INFO "centroid %d is %u\n", i, *(sbi->centroid + i));
+	}*/
+
 }
-//add qwj
-void  k_means(struct f2fs_sb_info* sbi,int* in_cluster)
-{
-    int i, j, count = 0;
-    unsigned int temp1, temp2;
 
-    unsigned int** distance;   //存放每个数据点到每个中心点的距离
-    distance = vzalloc(sbi->SAMPLE_SIZE * sizeof(unsigned int*));
-    distance[0] = vzalloc(sbi->SAMPLE_SIZE * sbi->CENTROID_NR * sizeof(unsigned int));
-    for (i = 1; i < sbi->SAMPLE_SIZE; i++)
-        distance[i] = distance[i - 1] + sbi->CENTROID_NR;
-
-    cluster(sbi, distance, in_cluster);  //用k个中心点进行聚类
-    temp1 = getDifference(sbi, in_cluster);  //第一次中心点和所属数据点的距离之和
-    count++;
-    //printf("The first difference between data and center is: %u\n\n", temp1);
-
-
-    getCenter(sbi,in_cluster);
-    cluster(sbi, distance, in_cluster);  //用新的k个中心点进行第二次聚类
-    temp2 = getDifference(sbi, in_cluster);
-    count++;
-    //printf("The second difference between data and center is: %u\n\n", temp2);
-
-    while (temp2 - temp1 != 0) {   //比较前后两次迭代，若不相等继续迭代
-        temp1 = temp2;
-        getCenter(sbi, in_cluster);
-        cluster(sbi, distance, in_cluster);
-        temp2 = getDifference(sbi, in_cluster);
-        count++;
-        //printf("The %dth difference between data and center is: %u\n\n", count, temp2);
-    }
-
-    //printf("\nThe total number of cluster is: %d\n", count);  //统计迭代次数
-}
 // add shao
 /*
  * 聚类的函数，这里不实现聚类算法，通过sysfs的方式把数据暴露出去，在NPU上实现聚类
@@ -1385,9 +1372,17 @@ static int kMeans_func(void* data) {
 
         //-------CPU运行聚类-----
         int* in_cluster;  //标记样本中每个点属于哪个聚类
+		
         in_cluster = vzalloc(sbi->SAMPLE_SIZE * sizeof(int));  //每个数据点所属聚类的标志数组
         get_centroid(sbi);
-        k_means(sbi, in_cluster);
+		printk(KERN_INFO "shao abcdefg");
+        //k_means(sbi, in_cluster);
+		k_means(sbi);
+		for(i=0;i<sbi->points;i++)
+		{
+			printk(KERN_INFO "qqq%d ",i);
+			printk(KERN_INFO "centroid[%d] = %u ",i,sbi->centroid[i]);
+		}
 		vfree(in_cluster);
         //printk(KERN_INFO "shao Kmeans result: %s", sbi->str_centroid);
         /*
@@ -1424,7 +1419,7 @@ void start_kMeans_thread(struct f2fs_sb_info* sbi) {
     sbi->SAMPLE_SIZE = 10000;
     sbi->sample_irr_array = vzalloc(sizeof(unsigned int) * sbi->SAMPLE_SIZE);
     for (i = 0; i < sbi->SAMPLE_SIZE; ++i) {
-        *(sbi->sample_irr_array + i) = 0;
+        *(sbi->sample_irr_array + i) = MAX_IRR;//未入队的视为冷，不参与聚类
     }
     // 聚类结果
     sbi->CENTROID_NR = 10;
@@ -1434,7 +1429,7 @@ void start_kMeans_thread(struct f2fs_sb_info* sbi) {
 
     memcpy(sbi->str_centroid, "10 0 0 0 0 0 0 0 0 0 0", 64);
 
-    sbi->LEVEL_WIDTH = 10000;
+    sbi->LEVEL_WIDTH = 1000;
     sbi->COLD_DATA_THRESHOLD = 500000;
     sbi->sample_task = kthread_run(kMeans_func, sbi, "f2fs_Kmeans");
     if (IS_ERR(sbi->sample_task)) {
